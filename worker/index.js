@@ -1086,6 +1086,74 @@ async function executeBroadcast(ctx, env, state) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// АВТОМАТИЧЕСКОЕ УДАЛЕНИЕ СТАРЫХ ПРОМОКОДОВ
+// ═══════════════════════════════════════════════════════════════
+
+async function deleteOldPromocodes(env) {
+  console.log('[PROMO-DELETE] 🗑️ Starting old promocodes cleanup...');
+  
+  try {
+    const bot = new Bot(env.BOT_TOKEN);
+    let deletedCount = 0;
+    let errorCount = 0;
+    
+    // Получаем все ключи с промокодами из KV
+    const list = await env.BROADCAST_STATE.list({ prefix: 'promo_msg_' });
+    console.log(`[PROMO-DELETE] 📊 Found ${list.keys.length} promocode messages to check`);
+    
+    const now = Date.now();
+    
+    for (const key of list.keys) {
+      try {
+        const dataJson = await env.BROADCAST_STATE.get(key.name);
+        if (!dataJson) continue;
+        
+        const data = JSON.parse(dataJson);
+        
+        // Проверяем нужно ли удалять
+        if (now >= data.delete_at) {
+          console.log(`[PROMO-DELETE] 🎯 Deleting message ${data.message_id} from chat ${data.chat_id} (partner: ${data.partner})`);
+          
+          try {
+            await bot.api.deleteMessage(data.chat_id, data.message_id);
+            deletedCount++;
+            console.log(`[PROMO-DELETE] ✅ Deleted message ${data.message_id}`);
+          } catch (error) {
+            // Сообщение могло быть уже удалено пользователем
+            if (error.error_code === 400 && error.description?.includes('message to delete not found')) {
+              console.log(`[PROMO-DELETE] ℹ️ Message ${data.message_id} already deleted`);
+            } else {
+              console.error(`[PROMO-DELETE] ❌ Failed to delete message ${data.message_id}:`, error.description);
+              errorCount++;
+            }
+          }
+          
+          // Удаляем запись из KV
+          await env.BROADCAST_STATE.delete(key.name);
+        }
+      } catch (error) {
+        console.error(`[PROMO-DELETE] ❌ Error processing key ${key.name}:`, error);
+        errorCount++;
+      }
+    }
+    
+    console.log(`[PROMO-DELETE] ✅ Cleanup completed! Deleted: ${deletedCount}, Errors: ${errorCount}`);
+    
+    return {
+      success: true,
+      deleted: deletedCount,
+      errors: errorCount
+    };
+  } catch (error) {
+    console.error('[PROMO-DELETE] ❌ Error during promocodes cleanup:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // АВТОМАТИЧЕСКАЯ ПРОВЕРКА ПОЛЬЗОВАТЕЛЕЙ (CRON)
 // ═══════════════════════════════════════════════════════════════
 
@@ -1241,8 +1309,14 @@ export default {
   // Scheduled handler для Cron Triggers
   async scheduled(event, env, ctx) {
     console.log('[CRON] ⏰ Triggered at:', new Date().toISOString());
-    const result = await checkAllUsers(env);
-    console.log('[CRON] 📊 Result:', result);
+    
+    // Проверка и архивация неактивных пользователей
+    const usersResult = await checkAllUsers(env);
+    console.log('[CRON] 📊 Users check result:', usersResult);
+    
+    // Удаление старых сообщений с промокодами (24+ часов)
+    const promoResult = await deleteOldPromocodes(env);
+    console.log('[CRON] 🗑️ Promocodes cleanup result:', promoResult);
   },
 
   async fetch(request, env, ctx) {
@@ -1480,12 +1554,27 @@ export default {
             
             console.log(`[PROMOCODE] Sending message to ${body.telegram_id}...`);
             
-            await bot.api.sendMessage(body.telegram_id, message, {
+            const sentMessage = await bot.api.sendMessage(body.telegram_id, message, {
               parse_mode: 'Markdown',
               disable_web_page_preview: true,
             });
             
             console.log(`[PROMOCODE] ✅ Successfully sent to user ${body.telegram_id}: ${promocode}`);
+            
+            // Сохраняем message_id для автоматического удаления через 24 часа
+            const deleteAt = Date.now() + (24 * 60 * 60 * 1000); // 24 часа
+            const messageKey = `promo_msg_${body.telegram_id}_${sentMessage.message_id}`;
+            await env.BROADCAST_STATE.put(messageKey, JSON.stringify({
+              chat_id: body.telegram_id,
+              message_id: sentMessage.message_id,
+              delete_at: deleteAt,
+              promocode: promocode,
+              partner: partner.title
+            }), {
+              expirationTtl: 86400 // 24 часа в секундах
+            });
+            
+            console.log(`[PROMOCODE] 📅 Scheduled for deletion at ${new Date(deleteAt).toISOString()}`);
           } catch (error) {
             console.error(`[PROMOCODE] ❌ Failed to send to ${body.telegram_id}:`, error);
             console.error(`[PROMOCODE] Error details:`, {
