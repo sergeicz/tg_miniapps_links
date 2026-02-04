@@ -250,6 +250,14 @@ async function loadPartners() {
   try {
     const partners = await safeFetch(`${CONFIG.API_URL}/api/partners`);
     console.log('[PARTNERS] Data loaded:', partners);
+    console.log('[PARTNERS] Total partners:', partners.length);
+    
+    // Логируем партнеров с промокодами
+    partners.forEach(p => {
+      if (p.promocode && p.promocode.trim() !== '') {
+        console.log(`[PARTNERS] ${p.title} has promocode: "${p.promocode}"`);
+      }
+    });
 
     if (!partners || partners.length === 0) {
       container.innerHTML = '<p style="text-align:center;">Партнерские ссылки пока не добавлены</p>';
@@ -274,7 +282,10 @@ async function loadPartners() {
       div.appendChild(h);
 
       links.forEach(link => {
-        console.log(`[BTN] ${link.title} | Logo: ${link.logo_url || 'none'}`);
+        console.log(`[BTN] Creating button: ${link.title}`);
+        console.log(`[BTN] - Logo: ${link.logo_url || 'none'}`);
+        console.log(`[BTN] - URL: ${link.url}`);
+        console.log(`[BTN] - Promocode: ${link.promocode || 'none'}`);
         
         const a = document.createElement('a');
         a.className = 'modern-btn';
@@ -324,6 +335,8 @@ async function loadPartners() {
 async function handleLinkClick(event, link) {
   try {
     console.log('[CLICK] Tracking click:', link.title || link.url);
+    console.log('[CLICK] User ID:', user.id);
+    console.log('[CLICK] Partner data:', { title: link.title, url: link.url, promocode: link.promocode });
     
     // Регистрация клика (не блокируем переход)
     safeFetch(`${CONFIG.API_URL}/api/click`, {
@@ -334,7 +347,22 @@ async function handleLinkClick(event, link) {
         title: link.title,
         category: link.category,
       }),
-    }).catch(err => console.warn('Click tracking failed:', err));
+    }).then(response => {
+      console.log('[CLICK] Response:', response);
+      if (response.promocode_sent) {
+        console.log('[PROMOCODE] ✅ Промокод отправлен в бот!');
+        // Показываем уведомление пользователю
+        if (tg.showPopup) {
+          tg.showPopup({
+            title: '🎁 Промокод отправлен',
+            message: 'Проверьте личные сообщения с ботом',
+            buttons: [{ type: 'ok' }]
+          });
+        }
+      }
+    }).catch(err => {
+      console.error('[CLICK] Tracking failed:', err);
+    });
 
     // Вибрация для обратной связи
     if (tg.HapticFeedback) {

@@ -1357,25 +1357,41 @@ export default {
 
       if (path === '/api/partners' && request.method === 'GET') {
         const partners = await getSheetData(env.SHEET_ID, 'partners', accessToken);
-        return jsonResponse(partners.map(p => ({
+        console.log(`[API/PARTNERS] Loaded ${partners.length} partners from sheet`);
+        
+        // Логируем промокоды для отладки
+        partners.forEach(p => {
+          if (p.promocode && p.promocode.trim() !== '') {
+            console.log(`[API/PARTNERS] ${p.title}: promocode="${p.promocode}"`);
+          }
+        });
+        
+        const result = partners.map(p => ({
           title: p.title,
           logo_url: p.logo_url || '',
           url: p.url,
           category: p.category,
           promocode: p.promocode || '', // Добавляем промокод
-        })));
+        }));
+        
+        console.log(`[API/PARTNERS] Returning ${result.length} partners to frontend`);
+        return jsonResponse(result);
       }
 
       if (path === '/api/click' && request.method === 'POST') {
         const body = await request.json();
+        console.log(`[CLICK] Request received:`, JSON.stringify(body));
         
         // Получаем данные пользователя
         const users = await getSheetData(env.SHEET_ID, 'users', accessToken);
         const user = users.find(u => String(u.telegram_id) === String(body.telegram_id));
+        console.log(`[CLICK] User found:`, user ? `${user.username} (${user.telegram_id})` : 'NOT FOUND');
         
         // Получаем данные партнера
         const partners = await getSheetData(env.SHEET_ID, 'partners', accessToken);
+        console.log(`[CLICK] Total partners in sheet:`, partners.length);
         const partner = partners.find(p => p.url === body.url);
+        console.log(`[CLICK] Partner found:`, partner ? `${partner.title} | Promocode: "${partner.promocode}"` : 'NOT FOUND');
         
         // Получаем все клики
         const clicks = await getSheetData(env.SHEET_ID, 'clicks', accessToken);
@@ -1446,10 +1462,15 @@ export default {
         }
         
         // Отправляем промокод пользователю, если он есть
+        console.log(`[PROMOCODE] Checking: partner=${!!partner}, promocode="${partner?.promocode}"`);
+        
         if (partner?.promocode && partner.promocode.trim() !== '') {
+          console.log(`[PROMOCODE] 🎯 Attempting to send promocode to user ${body.telegram_id}`);
           try {
             const bot = setupBot(env);
             const promocode = partner.promocode.trim();
+            
+            console.log(`[PROMOCODE] Bot created, preparing message...`);
             
             // Формируем сообщение с промокодом
             const message = `🎁 *Ваш промокод от ${partner.title}*\n\n` +
@@ -1457,16 +1478,25 @@ export default {
                           `_Нажмите на промокод чтобы скопировать_\n\n` +
                           `🔗 [Перейти к партнеру](${body.url})`;
             
+            console.log(`[PROMOCODE] Sending message to ${body.telegram_id}...`);
+            
             await bot.api.sendMessage(body.telegram_id, message, {
               parse_mode: 'Markdown',
               disable_web_page_preview: true,
             });
             
-            console.log(`[PROMOCODE] ✅ Sent to user ${body.telegram_id}: ${promocode}`);
+            console.log(`[PROMOCODE] ✅ Successfully sent to user ${body.telegram_id}: ${promocode}`);
           } catch (error) {
-            console.error(`[PROMOCODE] ❌ Failed to send:`, error);
+            console.error(`[PROMOCODE] ❌ Failed to send to ${body.telegram_id}:`, error);
+            console.error(`[PROMOCODE] Error details:`, {
+              error_code: error.error_code,
+              description: error.description,
+              message: error.message
+            });
             // Не останавливаем выполнение если отправка не удалась
           }
+        } else {
+          console.log(`[PROMOCODE] ⏭️ No promocode to send (partner=${!!partner}, promocode="${partner?.promocode}")`);
         }
         
         // Возвращаем корректное количество кликов + информацию о промокоде
