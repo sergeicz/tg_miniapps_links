@@ -2766,15 +2766,18 @@ export default {
             console.log(`[PROMOCODE] Bot created, preparing message...`);
             
             // Формируем сообщение с промокодом
-            const message = `🎁 *Ваш промокод от ${partner.title}*\n\n` +
-                          `\`${promocode}\`\n\n` +
-                          `_Нажмите на промокод чтобы скопировать_\n\n` +
-                          `🔗 [Перейти к партнеру](${body.url})`;
+            const message = `🎁 Ваш промокод от ${partner.title} (${body.url})\n\n` +
+                          `\`${promocode}\``;
+            
+            // Кнопка с URL партнера
+            const keyboard = new InlineKeyboard()
+              .url('🔗 Перейти к партнеру', body.url);
             
             console.log(`[PROMOCODE] Sending message to ${body.telegram_id}...`);
             
             const sentMessage = await bot.api.sendMessage(body.telegram_id, message, {
               parse_mode: 'Markdown',
+              reply_markup: keyboard,
               disable_web_page_preview: true,
             });
             
