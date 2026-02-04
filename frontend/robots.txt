@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /
+
+# Запрещаем индексацию для всех поисковых роботов
+# This is a Telegram Mini App - no indexing needed
