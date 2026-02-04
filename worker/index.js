@@ -352,7 +352,8 @@ function setupBot(env) {
     
     const keyboard = new InlineKeyboard()
       .text('📊 Статистика', 'admin_stats').row()
-      .text('📢 Рассылка', 'admin_broadcast').row()
+      .text('📈 Статистика рассылок', 'admin_broadcasts_stats').row()
+      .text('📢 Новая рассылка', 'admin_broadcast').row()
       .text('👥 Пользователи', 'admin_users').row()
       .text('« Назад', 'back_to_start');
     
@@ -385,6 +386,159 @@ function setupBot(env) {
       reply_markup: keyboard
     });
     await ctx.answerCallbackQuery();
+  });
+
+  // Статистика рассылок
+  bot.callbackQuery('admin_broadcasts_stats', async (ctx) => {
+    const isAdmin = await checkAdmin(env, ctx.from);
+    if (!isAdmin) {
+      await ctx.answerCallbackQuery('❌ У вас нет прав администратора');
+      return;
+    }
+    
+    const creds = JSON.parse(env.CREDENTIALS_JSON);
+    const accessToken = await getAccessToken(creds);
+    
+    try {
+      const broadcasts = await getSheetData(env.SHEET_ID, 'broadcasts', accessToken);
+      
+      if (!broadcasts || broadcasts.length === 0) {
+        const keyboard = new InlineKeyboard().text('« Назад', 'admin_panel');
+        await ctx.editMessageText(
+          '📈 *Статистика рассылок*\n\n📭 Рассылок пока нет.',
+          { parse_mode: 'Markdown', reply_markup: keyboard }
+        );
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      
+      // Сортируем по дате (последние сначала)
+      broadcasts.sort((a, b) => {
+        const dateA = new Date(a.date + ' ' + a.time);
+        const dateB = new Date(b.date + ' ' + b.time);
+        return dateB - dateA;
+      });
+      
+      // Показываем последние 10 рассылок
+      const recentBroadcasts = broadcasts.slice(0, 10);
+      
+      let text = `📈 *Статистика рассылок*\n\n`;
+      text += `📊 Всего рассылок: ${broadcasts.length}\n\n`;
+      text += `━━━━━━━━━━━━━━━━\n`;
+      
+      recentBroadcasts.forEach((broadcast, index) => {
+        const convRate = broadcast.conversion_rate || '0.00%';
+        text += `\n${index + 1}. *${broadcast.name || 'Без названия'}*\n`;
+        text += `📅 ${broadcast.date} | 🕐 ${broadcast.time}\n`;
+        text += `✉️ ${broadcast.sent_count} | 👆 ${broadcast.click_count} | 📈 ${convRate}\n`;
+      });
+      
+      if (broadcasts.length > 10) {
+        text += `\n_...и еще ${broadcasts.length - 10} рассылок_`;
+      }
+      
+      // Создаем клавиатуру с кнопками для детальной статистики
+      const keyboard = new InlineKeyboard();
+      
+      // Добавляем кнопки для первых 5 рассылок
+      recentBroadcasts.slice(0, 5).forEach((broadcast, index) => {
+        const shortName = broadcast.name.length > 20 ? broadcast.name.substring(0, 20) + '...' : broadcast.name;
+        keyboard.text(`${index + 1}. ${shortName}`, `broadcast_detail_${broadcast.broadcast_id}`);
+        if (index % 2 === 1) keyboard.row(); // По 2 кнопки в ряд
+      });
+      
+      keyboard.row().text('« Назад', 'admin_panel');
+      
+      await ctx.editMessageText(text, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      });
+      await ctx.answerCallbackQuery();
+    } catch (error) {
+      console.error('[BROADCASTS_STATS] Error:', error);
+      await ctx.answerCallbackQuery('❌ Ошибка загрузки статистики');
+    }
+  });
+
+  // Детальная статистика конкретной рассылки
+  bot.callbackQuery(/^broadcast_detail_(.+)$/, async (ctx) => {
+    const isAdmin = await checkAdmin(env, ctx.from);
+    if (!isAdmin) {
+      await ctx.answerCallbackQuery('❌ У вас нет прав администратора');
+      return;
+    }
+    
+    const broadcastId = ctx.match[1];
+    const creds = JSON.parse(env.CREDENTIALS_JSON);
+    const accessToken = await getAccessToken(creds);
+    
+    try {
+      const broadcasts = await getSheetData(env.SHEET_ID, 'broadcasts', accessToken);
+      const broadcast = broadcasts.find(b => b.broadcast_id === broadcastId);
+      
+      if (!broadcast) {
+        await ctx.answerCallbackQuery('❌ Рассылка не найдена');
+        return;
+      }
+      
+      let text = `📊 *Детальная статистика*\n\n`;
+      text += `📢 *Название:* ${broadcast.name || 'Без названия'}\n`;
+      text += `🆔 *ID:* \`${broadcast.broadcast_id}\`\n\n`;
+      
+      text += `📅 *Дата:* ${broadcast.date}\n`;
+      text += `🕐 *Время:* ${broadcast.time}\n\n`;
+      
+      text += `━━━━━━━━━━━━━━━━\n`;
+      text += `📊 *СТАТИСТИКА:*\n\n`;
+      
+      const sentCount = parseInt(broadcast.sent_count || '0');
+      const readCount = parseInt(broadcast.read_count || '0');
+      const clickCount = parseInt(broadcast.click_count || '0');
+      const convRate = broadcast.conversion_rate || '0.00%';
+      
+      text += `👥 Всего пользователей: ${broadcast.total_users}\n`;
+      text += `✉️ Отправлено: ${sentCount}\n`;
+      text += `📖 Прочитано: ${readCount}\n`;
+      text += `👆 Кликнули: ${clickCount}\n`;
+      text += `📈 Конверсия: *${convRate}*\n\n`;
+      
+      if (broadcast.fail_count && parseInt(broadcast.fail_count) > 0) {
+        text += `❌ Ошибок: ${broadcast.fail_count}\n`;
+      }
+      
+      if (broadcast.archived_count && parseInt(broadcast.archived_count) > 0) {
+        text += `📦 Архивировано: ${broadcast.archived_count}\n`;
+      }
+      
+      text += `\n━━━━━━━━━━━━━━━━\n`;
+      text += `📝 *СОДЕРЖАНИЕ:*\n\n`;
+      
+      if (broadcast.title) {
+        text += `*Заголовок:* ${broadcast.title}\n`;
+      }
+      
+      if (broadcast.subtitle) {
+        text += `*Текст:* ${broadcast.subtitle}\n`;
+      }
+      
+      if (broadcast.button_text && broadcast.button_url) {
+        text += `\n🔘 *Кнопка:* ${broadcast.button_text}\n`;
+        text += `🔗 *Ссылка:* ${broadcast.button_url}`;
+      }
+      
+      const keyboard = new InlineKeyboard()
+        .text('« К списку рассылок', 'admin_broadcasts_stats').row()
+        .text('« В админку', 'admin_panel');
+      
+      await ctx.editMessageText(text, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      });
+      await ctx.answerCallbackQuery();
+    } catch (error) {
+      console.error('[BROADCAST_DETAIL] Error:', error);
+      await ctx.answerCallbackQuery('❌ Ошибка загрузки детальной статистики');
+    }
   });
 
   // Начало создания рассылки
