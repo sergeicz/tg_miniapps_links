@@ -975,6 +975,7 @@ export default {
         const partners = await getSheetData(env.SHEET_ID, 'partners', accessToken);
         return jsonResponse(partners.map(p => ({
           title: p.title,
+          logo_url: p.logo_url || '',
           url: p.url,
           category: p.category,
         })));
