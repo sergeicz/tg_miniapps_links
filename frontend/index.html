@@ -338,6 +338,12 @@ h2 {
 .cookie-icon {
   font-size: 3rem;
   margin-bottom: 15px;
+  animation: rotate 2s linear infinite;
+}
+
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .cookie-text {
@@ -345,6 +351,7 @@ h2 {
   font-size: 0.95rem;
   line-height: 1.6;
   margin-bottom: 25px;
+  text-align: center;
 }
 
 .cookie-text a {
@@ -840,7 +847,7 @@ html {
 <!-- Cookie Modal -->
 <div id="cookieConsent">
   <div class="cookie-box">
-    <div class="cookie-icon">🍪</div>
+    <div class="cookie-icon">🐹</div>
     <div class="cookie-text">
       Мы используем cookies для улучшения вашего опыта и аналитики. Продолжая использование вы соглашаетесь с 
       <a href="./policy.html" target="_blank">Политикой конфиденциальности</a> и 
