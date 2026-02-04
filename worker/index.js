@@ -559,6 +559,9 @@ function setupBot(env) {
       subtitle: null,
       image_url: null,
       image_file_id: null,
+      media_type: null,       // photo | video | voice | video_note
+      media_url: null,
+      media_file_id: null,
       button_text: null,
       button_url: null,
       started_at: new Date().toISOString()
@@ -580,7 +583,7 @@ function setupBot(env) {
     const state = await getBroadcastState(env, ctx.chat.id);
     if (!state) return;
     
-    state.step = 'image';
+    state.step = 'media';
     await saveBroadcastState(env, ctx.chat.id, state);
     
     const keyboard = new InlineKeyboard()
@@ -588,7 +591,7 @@ function setupBot(env) {
       .text('❌ Отменить', 'broadcast_cancel');
     
     await ctx.reply(
-      '📢 *Создание рассылки*\n\n*Шаг 3 из 4:* Изображение\n\n🖼️ *Прикрепите изображение* или отправьте ссылку (URL):',
+      '📢 *Создание рассылки*\n\n*Шаг 3 из 4:* Медиа\n\n🖼️📹🎙️ *Прикрепите медиа* (фото/видео/голосовое/видеозаметку) или отправьте ссылку на фото/видео (URL):',
       { parse_mode: 'Markdown', reply_markup: keyboard }
     );
     await ctx.answerCallbackQuery();
@@ -723,19 +726,31 @@ function setupBot(env) {
       
     } else if (state.step === 'subtitle') {
       state.subtitle = text;
-      state.step = 'image';
+      state.step = 'media';
       keyboard = new InlineKeyboard()
         .text('⏭️ Пропустить', 'broadcast_skip_image').row()
         .text('❌ Отменить', 'broadcast_cancel');
       
       await saveBroadcastState(env, ctx.chat.id, state);
       await ctx.reply(
-        '📢 *Создание рассылки*\n\n*Шаг 4 из 5:* Изображение\n\n🖼️ *Прикрепите изображение* или отправьте ссылку (URL):',
+        '📢 *Создание рассылки*\n\n*Шаг 4 из 5:* Медиа\n\n🖼️📹🎙️ *Прикрепите медиа* (фото/видео/голосовое/видеозаметку) или отправьте ссылку на фото/видео (URL):',
         { parse_mode: 'Markdown', reply_markup: keyboard }
       );
       
-    } else if (state.step === 'image') {
-      state.image_url = text;
+    } else if (state.step === 'media') {
+      // Текстовый ввод воспринимаем как URL на фото/видео
+      const url = text.trim();
+      state.media_url = url;
+      state.media_file_id = null;
+      
+      // Простая эвристика для определения типа
+      const lower = url.toLowerCase();
+      if (lower.endsWith('.mp4') || lower.includes('video')) {
+        state.media_type = 'video';
+      } else {
+        state.media_type = 'photo';
+      }
+
       state.step = 'button';
       keyboard = new InlineKeyboard()
         .text('⏭️ Пропустить', 'broadcast_skip_button').row()
@@ -758,19 +773,22 @@ function setupBot(env) {
   });
 
   // ═══════════════════════════════════════════════════════════
-  // ОБРАБОТКА ФОТО (для рассылки)
+  // ОБРАБОТКА МЕДИА (для рассылки)
   // ═══════════════════════════════════════════════════════════
   
+  // Фото
   bot.on('message:photo', async (ctx) => {
     const state = await getBroadcastState(env, ctx.chat.id);
-    if (!state || state.step !== 'image') return;
+    if (!state || state.step !== 'media') return;
     
     const isAdmin = await checkAdmin(env, ctx.from);
     if (!isAdmin) return;
     
     const photos = ctx.message.photo;
     const largestPhoto = photos[photos.length - 1];
-    state.image_file_id = largestPhoto.file_id;
+    state.media_type = 'photo';
+    state.media_file_id = largestPhoto.file_id;
+    state.media_url = null;
     state.step = 'button';
     
     const keyboard = new InlineKeyboard()
@@ -784,6 +802,81 @@ function setupBot(env) {
     );
   });
 
+  // Видео
+  bot.on('message:video', async (ctx) => {
+    const state = await getBroadcastState(env, ctx.chat.id);
+    if (!state || state.step !== 'media') return;
+    
+    const isAdmin = await checkAdmin(env, ctx.from);
+    if (!isAdmin) return;
+    
+    const video = ctx.message.video;
+    state.media_type = 'video';
+    state.media_file_id = video.file_id;
+    state.media_url = null;
+    state.step = 'button';
+    
+    const keyboard = new InlineKeyboard()
+      .text('⏭️ Пропустить', 'broadcast_skip_button').row()
+      .text('❌ Отменить', 'broadcast_cancel');
+    
+    await saveBroadcastState(env, ctx.chat.id, state);
+    await ctx.reply(
+      '📢 *Создание рассылки*\n\n*Шаг 5 из 5:* Кнопка\n\n✅ Видео загружено!\n\n🔗 Отправьте *текст и ссылку для кнопки* в формате:\n\nТекст кнопки | https://example.com',
+      { parse_mode: 'Markdown', reply_markup: keyboard }
+    );
+  });
+
+  // Голосовое
+  bot.on('message:voice', async (ctx) => {
+    const state = await getBroadcastState(env, ctx.chat.id);
+    if (!state || state.step !== 'media') return;
+    
+    const isAdmin = await checkAdmin(env, ctx.from);
+    if (!isAdmin) return;
+    
+    const voice = ctx.message.voice;
+    state.media_type = 'voice';
+    state.media_file_id = voice.file_id;
+    state.media_url = null;
+    state.step = 'button';
+    
+    const keyboard = new InlineKeyboard()
+      .text('⏭️ Пропустить', 'broadcast_skip_button').row()
+      .text('❌ Отменить', 'broadcast_cancel');
+    
+    await saveBroadcastState(env, ctx.chat.id, state);
+    await ctx.reply(
+      '📢 *Создание рассылки*\n\n*Шаг 5 из 5:* Кнопка\n\n✅ Голосовое сообщение загружено!\n\n🔗 Отправьте *текст и ссылку для кнопки* в формате:\n\nТекст кнопки | https://example.com',
+      { parse_mode: 'Markdown', reply_markup: keyboard }
+    );
+  });
+
+  // Видеозаметка (круглое видео)
+  bot.on('message:video_note', async (ctx) => {
+    const state = await getBroadcastState(env, ctx.chat.id);
+    if (!state || state.step !== 'media') return;
+    
+    const isAdmin = await checkAdmin(env, ctx.from);
+    if (!isAdmin) return;
+    
+    const videoNote = ctx.message.video_note;
+    state.media_type = 'video_note';
+    state.media_file_id = videoNote.file_id;
+    state.media_url = null;
+    state.step = 'button';
+    
+    const keyboard = new InlineKeyboard()
+      .text('⏭️ Пропустить', 'broadcast_skip_button').row()
+      .text('❌ Отменить', 'broadcast_cancel');
+    
+    await saveBroadcastState(env, ctx.chat.id, state);
+    await ctx.reply(
+      '📢 *Создание рассылки*\n\n*Шаг 5 из 5:* Кнопка\n\n✅ Видеозаметка загружена!\n\n🔗 Отправьте *текст и ссылку для кнопки* в формате:\n\nТекст кнопки | https://example.com',
+      { parse_mode: 'Markdown', reply_markup: keyboard }
+    );
+  });
+
   return bot;
 }
 
@@ -792,25 +885,54 @@ function setupBot(env) {
 // ═══════════════════════════════════════════════════════════════
 
 async function showBroadcastPreview(ctx, env, state) {
-  const hasImage = (state.image_url && state.image_url.trim() !== '') || (state.image_file_id && state.image_file_id.trim() !== '');
-  const photoSource = state.image_file_id || state.image_url;
+  const mediaType = state.media_type || ((state.image_url || state.image_file_id) ? 'photo' : null);
+  const mediaSource = state.media_file_id || state.media_url || state.image_file_id || state.image_url;
   
   const keyboard = new InlineKeyboard()
     .text('✅ Отправить всем', 'broadcast_confirm').row()
     .text('❌ Отменить', 'broadcast_cancel');
   
-  if (hasImage) {
+  if (mediaType === 'photo') {
     let caption = '📢 *Предпросмотр рассылки*\n\n';
     if (state.title) caption += `*${state.title}*\n`;
     if (state.subtitle) caption += `\n${state.subtitle}\n`;
     if (state.button_text && state.button_url) caption += `\n🔘 Кнопка: "${state.button_text}"\n`;
     caption += `\n━━━━━━━━━━━━━━━━\n\nВсе готово! Отправить рассылку?`;
     
-    await ctx.replyWithPhoto(photoSource, {
+    await ctx.replyWithPhoto(mediaSource, {
       caption: caption,
       parse_mode: 'Markdown',
       reply_markup: keyboard
     });
+  } else if (mediaType === 'video') {
+    let caption = '📢 *Предпросмотр рассылки*\n\n';
+    if (state.title) caption += `*${state.title}*\n`;
+    if (state.subtitle) caption += `\n${state.subtitle}\n`;
+    if (state.button_text && state.button_url) caption += `\n🔘 Кнопка: "${state.button_text}"\n`;
+    caption += `\n━━━━━━━━━━━━━━━━\n\nВсе готово! Отправить рассылку?`;
+    
+    await ctx.replyWithVideo(mediaSource, {
+      caption: caption,
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+  } else if (mediaType === 'voice' || mediaType === 'video_note') {
+    let previewText = '📢 *Предпросмотр рассылки*\n\n━━━━━━━━━━━━━━━━\n';
+    if (state.title) previewText += `\n*${state.title}*\n`;
+    if (state.subtitle) previewText += `\n${state.subtitle}\n`;
+    if (state.button_text && state.button_url) previewText += `\n🔘 Кнопка: "${state.button_text}"\n`;
+    previewText += `\n━━━━━━━━━━━━━━━━\n\nВсе готово! Отправить рассылку?`;
+    
+    await ctx.reply(previewText, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+    
+    if (mediaType === 'voice') {
+      await ctx.replyWithVoice(mediaSource);
+    } else {
+      await ctx.replyWithVideoNote(mediaSource);
+    }
   } else {
     let previewText = '📢 *Предпросмотр рассылки*\n\n━━━━━━━━━━━━━━━━\n';
     if (state.title) previewText += `\n*${state.title}*\n`;
@@ -847,8 +969,8 @@ async function executeBroadcast(ctx, env, state) {
     keyboard = new InlineKeyboard().url(state.button_text, trackedUrl);
   }
   
-  const hasImage = (state.image_url && state.image_url.trim() !== '') || (state.image_file_id && state.image_file_id.trim() !== '');
-  const photoSource = state.image_file_id || state.image_url;
+  const mediaType = state.media_type || ((state.image_url || state.image_file_id) ? 'photo' : null);
+  const mediaSource = state.media_file_id || state.media_url || state.image_file_id || state.image_url;
   
   let successCount = 0;
   let failCount = 0;
@@ -865,12 +987,34 @@ async function executeBroadcast(ctx, env, state) {
   
   for (const user of validUsers) {
     try {
-      if (hasImage) {
-        await ctx.api.sendPhoto(user.telegram_id, photoSource, {
+      if (mediaType === 'photo') {
+        await ctx.api.sendPhoto(user.telegram_id, mediaSource, {
           caption: messageText,
           parse_mode: 'Markdown',
           reply_markup: keyboard
         });
+      } else if (mediaType === 'video') {
+        await ctx.api.sendVideo(user.telegram_id, mediaSource, {
+          caption: messageText,
+          parse_mode: 'Markdown',
+          reply_markup: keyboard
+        });
+      } else if (mediaType === 'voice') {
+        if (messageText) {
+          await ctx.api.sendMessage(user.telegram_id, messageText, {
+            parse_mode: 'Markdown',
+            reply_markup: keyboard
+          });
+        }
+        await ctx.api.sendVoice(user.telegram_id, mediaSource);
+      } else if (mediaType === 'video_note') {
+        if (messageText) {
+          await ctx.api.sendMessage(user.telegram_id, messageText, {
+            parse_mode: 'Markdown',
+            reply_markup: keyboard
+          });
+        }
+        await ctx.api.sendVideoNote(user.telegram_id, mediaSource);
       } else {
         await ctx.api.sendMessage(user.telegram_id, messageText, {
           parse_mode: 'Markdown',
