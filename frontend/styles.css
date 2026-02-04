@@ -512,7 +512,7 @@ h2 {
   position: relative;
   overflow: hidden;
   animation: fadeInUp 0.8s ease-out;
-  animation-delay: 0.5s;
+  animation-delay: 1.5s;
   opacity: 0;
   animation-fill-mode: forwards;
 }
