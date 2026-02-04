@@ -13,14 +13,16 @@
 }
 
 :root {
-  --primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  --secondary: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-  --success: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  --glass-bg: rgba(255, 255, 255, 0.1);
-  --glass-border: rgba(255, 255, 255, 0.18);
+  --primary: linear-gradient(135deg, #FF0000 0%, #8B0000 100%);
+  --secondary: linear-gradient(135deg, #FF4500 0%, #DC143C 100%);
+  --success: linear-gradient(135deg, #00FF00 0%, #008000 100%);
+  --glass-bg: rgba(0, 0, 0, 0.6);
+  --glass-border: rgba(255, 0, 0, 0.3);
   --text-primary: #ffffff;
-  --text-secondary: rgba(255, 255, 255, 0.7);
-  --shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+  --text-secondary: rgba(255, 255, 255, 0.8);
+  --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7);
+  --brutal-red: #FF0000;
+  --brutal-dark: #1a1a1a;
 }
 
 @keyframes gradient {
@@ -57,7 +59,7 @@
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+  background: linear-gradient(-45deg, #000000, #1a1a1a, #8B0000, #000000);
   background-size: 400% 400%;
   animation: gradient 15s ease infinite;
   color: var(--text-primary);
@@ -102,14 +104,25 @@ body {
 h1 {
   text-align: center;
   font-size: 2.5rem;
-  font-weight: 800;
-  margin-bottom: 40px;
-  background: linear-gradient(135deg, #fff 0%, rgba(255,255,255,0.7) 100%);
+  font-weight: 900;
+  margin-bottom: 10px;
+  background: linear-gradient(135deg, #FF0000 0%, #FFFFFF 50%, #FF0000 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  text-shadow: 0 4px 20px rgba(255, 255, 255, 0.3);
+  text-shadow: 0 0 30px rgba(255, 0, 0, 0.8);
   animation: pulse 2s ease-in-out infinite;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+h2 {
+  text-align: center;
+  font-size: 1.2rem;
+  font-weight: 400;
+  margin-bottom: 40px;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
 }
 
 /* Glassmorphism Card */
@@ -136,28 +149,34 @@ h1 {
   border-color: rgba(255, 255, 255, 0.3);
 }
 
-.glass-card h2 {
+.glass-card h3 {
   font-size: 1.5rem;
   font-weight: 700;
   margin-bottom: 20px;
-  color: var(--text-primary);
+  color: var(--brutal-red);
   display: flex;
   align-items: center;
   gap: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
 }
 
-.glass-card h2::before {
+.glass-card h3::before {
   content: '';
   display: inline-block;
   width: 4px;
   height: 24px;
   background: var(--primary);
   border-radius: 4px;
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.8);
 }
 
 /* Modern Button */
 .modern-btn {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
   width: 100%;
   padding: 16px 24px;
   margin: 12px 0;
@@ -165,16 +184,30 @@ h1 {
   color: var(--text-primary);
   text-decoration: none;
   font-size: 1rem;
-  font-weight: 600;
-  border-radius: 16px;
+  font-weight: 700;
+  border-radius: 12px;
   background: var(--glass-bg);
-  backdrop-filter: blur(10px);
-  border: 1px solid var(--glass-border);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(20px);
+  border: 2px solid var(--glass-border);
+  box-shadow: 0 4px 16px rgba(255, 0, 0, 0.3);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
   cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.modern-btn .btn-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  filter: brightness(1.2);
+  transition: transform 0.3s ease;
+}
+
+.modern-btn:hover .btn-logo {
+  transform: scale(1.1) rotate(5deg);
 }
 
 .modern-btn::before {
@@ -194,9 +227,9 @@ h1 {
 
 .modern-btn:hover {
   transform: translateY(-4px) scale(1.02);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-  border-color: rgba(255, 255, 255, 0.4);
-  background: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 8px 24px rgba(255, 0, 0, 0.6), 0 0 30px rgba(255, 0, 0, 0.4);
+  border-color: var(--brutal-red);
+  background: rgba(255, 0, 0, 0.2);
 }
 
 .modern-btn:active {
@@ -470,10 +503,11 @@ html {
 <body>
 <div class="container">
   <div class="avatar-container">
-    <img src="img/img.png?v=2" alt="Аватар">
+    <img src="img/img.png?v=3" alt="Логотип">
   </div>
   
-  <h1>✨ Партнерские ссылки</h1>
+  <h1>⚡ Уникальные предложения</h1>
+  <h2>От наших партнёров</h2>
   <div id="categories"></div>
   
   <button id="adminBtn" class="modern-btn gradient-btn">⚙️ Админ-панель</button>
@@ -675,7 +709,7 @@ async function loadPartners() {
       const div = document.createElement('div');
       div.className = 'glass-card';
 
-      const h = document.createElement('h2');
+      const h = document.createElement('h3');
       h.textContent = catName;
       div.appendChild(h);
 
@@ -684,8 +718,25 @@ async function loadPartners() {
         a.className = 'modern-btn';
         a.href = link.url;
         a.target = '_blank';
-        a.textContent = link.title;
         a.onclick = (e) => handleLinkClick(e, link);
+        
+        // Добавляем логотип если есть
+        if (link.logo_url && link.logo_url.trim() !== '') {
+          const logo = document.createElement('img');
+          logo.src = link.logo_url;
+          logo.alt = link.title;
+          logo.className = 'btn-logo';
+          logo.onerror = function() {
+            this.style.display = 'none'; // Скрыть если не загрузилось
+          };
+          a.appendChild(logo);
+        }
+        
+        // Добавляем текст
+        const text = document.createElement('span');
+        text.textContent = link.title;
+        a.appendChild(text);
+        
         div.appendChild(a);
       });
 
