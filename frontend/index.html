@@ -560,6 +560,28 @@ html {
   </div>
 </div>
 <script>
+// Cookie Consent Management
+function checkCookieConsent() {
+  const consent = localStorage.getItem('cookieConsent');
+  if (consent === 'accepted') {
+    document.getElementById('cookieConsent').classList.add('hidden');
+  } else {
+    document.getElementById('cookieConsent').classList.remove('hidden');
+  }
+}
+
+function acceptCookies() {
+  localStorage.setItem('cookieConsent', 'accepted');
+  const modal = document.getElementById('cookieConsent');
+  modal.style.animation = 'fadeOut 0.5s ease';
+  setTimeout(() => {
+    modal.classList.add('hidden');
+  }, 500);
+}
+
+// Check consent on page load
+window.addEventListener('DOMContentLoaded', checkCookieConsent);
+
 // Конфигурация API
 const CONFIG = {
   API_URL: 'https://telegram-miniapp-api.worknotdead.workers.dev',  // ПРОДАКШЕН
