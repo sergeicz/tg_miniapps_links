@@ -333,7 +333,7 @@ async function loadPartners() {
 
 // Обработка клика по ссылке
 async function handleLinkClick(event, link) {
-  // ВАЖНО: Предотвращаем немедленный переход по ссылке
+  // ВАЖНО: Предотвращаем стандартное поведение ссылки
   event.preventDefault();
   
   try {
@@ -346,44 +346,76 @@ async function handleLinkClick(event, link) {
       tg.HapticFeedback.impactOccurred('light');
     }
     
-    // Регистрация клика - ЖДЕМ завершения
-    try {
-      const response = await safeFetch(`${CONFIG.API_URL}/api/click`, {
-        method: 'POST',
-        body: JSON.stringify({
-          telegram_id: user.id,
-          url: link.url,
-          title: link.title,
-          category: link.category,
-        }),
-      });
-      
-      console.log('[CLICK] Response:', response);
-      
-      if (response.promocode_sent) {
-        console.log('[PROMOCODE] ✅ Промокод отправлен в бот!');
-        // Показываем уведомление пользователю
-        if (tg.showPopup) {
-          tg.showPopup({
-            title: '🎁 Промокод отправлен',
-            message: 'Проверьте личные сообщения с ботом',
-            buttons: [{ type: 'ok' }]
-          });
+    // Отправка данных о клике с использованием sendBeacon для надежности
+    // sendBeacon гарантирует отправку даже если страница закрывается
+    const clickData = JSON.stringify({
+      telegram_id: user.id,
+      url: link.url,
+      title: link.title,
+      category: link.category,
+    });
+    
+    // Пробуем использовать sendBeacon для максимальной надежности
+    const beaconSent = navigator.sendBeacon(
+      `${CONFIG.API_URL}/api/click`,
+      new Blob([clickData], { type: 'application/json' })
+    );
+    
+    console.log('[CLICK] Beacon sent:', beaconSent);
+    
+    // Если sendBeacon не сработал, используем обычный fetch
+    if (!beaconSent) {
+      console.log('[CLICK] Beacon failed, using fetch...');
+      try {
+        const response = await safeFetch(`${CONFIG.API_URL}/api/click`, {
+          method: 'POST',
+          body: clickData,
+        });
+        
+        console.log('[CLICK] Response:', response);
+        
+        if (response.promocode_sent) {
+          console.log('[PROMOCODE] ✅ Промокод отправлен в бот!');
         }
+      } catch (err) {
+        console.error('[CLICK] Tracking failed:', err);
       }
-    } catch (err) {
-      console.error('[CLICK] Tracking failed:', err);
-      // Даже если трекинг не удался, все равно откроем ссылку
     }
     
-    // Теперь открываем ссылку
+    // Небольшая задержка для завершения запроса
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Открываем ссылку правильным способом в зависимости от типа
     console.log('[CLICK] Opening URL:', link.url);
-    window.open(link.url, '_blank');
+    
+    if (link.url.includes('t.me/') || link.url.includes('telegram.me/')) {
+      // Для Telegram ссылок используем специальный метод
+      console.log('[CLICK] Using openTelegramLink for Telegram URL');
+      if (tg.openTelegramLink) {
+        tg.openTelegramLink(link.url);
+      } else {
+        window.open(link.url, '_blank');
+      }
+    } else {
+      // Для обычных ссылок используем openLink или window.open
+      console.log('[CLICK] Using openLink for regular URL');
+      if (tg.openLink) {
+        tg.openLink(link.url);
+      } else {
+        window.open(link.url, '_blank');
+      }
+    }
     
   } catch (error) {
     console.error('Link click handler error:', error);
     // В случае ошибки все равно откроем ссылку
-    window.open(link.url, '_blank');
+    if (link.url.includes('t.me/') && tg.openTelegramLink) {
+      tg.openTelegramLink(link.url);
+    } else if (tg.openLink) {
+      tg.openLink(link.url);
+    } else {
+      window.open(link.url, '_blank');
+    }
   }
 }
 
