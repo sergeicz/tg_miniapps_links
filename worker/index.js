@@ -54,9 +54,17 @@ async function createJWT(creds) {
   const encodedClaim = btoa(JSON.stringify(claim)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const signatureInput = `${encodedHeader}.${encodedClaim}`;
 
+  // Очищаем private key от заголовков и пробелов
+  const cleanedKey = creds.private_key
+    .replace(/-----BEGIN PRIVATE KEY-----/g, '')
+    .replace(/-----END PRIVATE KEY-----/g, '')
+    .replace(/\\n/g, '')
+    .replace(/\n/g, '')
+    .replace(/\s/g, '');
+  
   const privateKey = await crypto.subtle.importKey(
     'pkcs8',
-    str2ab(atob(creds.private_key.replace(/-----BEGIN PRIVATE KEY-----/g, '').replace(/-----END PRIVATE KEY-----/g, '').replace(/\s/g, ''))),
+    str2ab(cleanedKey),
     { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
     false,
     ['sign']
@@ -75,12 +83,17 @@ async function createJWT(creds) {
 }
 
 function str2ab(str) {
-  const binaryString = atob(str);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
+  try {
+    const binaryString = atob(str);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  } catch (error) {
+    console.error('str2ab error:', error, 'Input length:', str?.length);
+    throw error;
   }
-  return bytes.buffer;
 }
 
 async function getSheetData(sheetId, sheetName, accessToken) {
