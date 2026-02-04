@@ -548,7 +548,7 @@ h2 {
 .banner-icon {
   font-size: 42px;
   flex-shrink: 0;
-  filter: drop-shadow(0 4px 8px rgba(168, 85, 247, 0.4));
+  filter: grayscale(100%) brightness(300%) drop-shadow(0 4px 8px rgba(168, 85, 247, 0.4));
   animation: pulse 2s ease-in-out infinite;
 }
 
@@ -1521,55 +1521,8 @@ social.show {
 /* Адаптивность баннера партнёрам */
 @media (max-width: 768px) {
   .partner-banner {
-    padding: 18px 22px;
-    gap: 15px;
-  }
-  
-  .banner-icon {
-    font-size: 36px;
-  }
-  
-  .banner-title {
-    font-size: 1.1rem;
-  }
-  
-  .banner-text {
-    font-size: 0.9rem;
-  }
-  
-  .banner-arrow {
-    font-size: 1.8rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .partner-banner {
-    padding: 16px 20px;
+    padding: 12px 18px;
     gap: 12px;
-    border-radius: 32px;
-  }
-  
-  .banner-icon {
-    font-size: 32px;
-  }
-  
-  .banner-title {
-    font-size: 1rem;
-  }
-  
-  .banner-text {
-    font-size: 0.85rem;
-  }
-  
-  .banner-arrow {
-    font-size: 1.6rem;
-  }
-}
-
-@media (max-width: 360px) {
-  .partner-banner {
-    padding: 14px 18px;
-    gap: 10px;
   }
   
   .banner-icon {
@@ -1585,7 +1538,54 @@ social.show {
   }
   
   .banner-arrow {
-    font-size: 1.4rem;
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .partner-banner {
+    padding: 10px 16px;
+    gap: 10px;
+    border-radius: 28px;
+  }
+  
+  .banner-icon {
+    font-size: 24px;
+  }
+  
+  .banner-title {
+    font-size: 0.9rem;
+  }
+  
+  .banner-text {
+    font-size: 0.75rem;
+  }
+  
+  .banner-arrow {
+    font-size: 1.3rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .partner-banner {
+    padding: 8px 14px;
+    gap: 8px;
+  }
+  
+  .banner-icon {
+    font-size: 22px;
+  }
+  
+  .banner-title {
+    font-size: 0.85rem;
+  }
+  
+  .banner-text {
+    font-size: 0.7rem;
+  }
+  
+  .banner-arrow {
+    font-size: 1.2rem;
   }
 }
 
