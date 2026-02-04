@@ -1095,15 +1095,37 @@ async function checkAllUsers(env) {
     console.log(`[CRON] 📊 Found ${users.length} users to check`);
     
     // Проверяем каждого пользователя
-    for (const user of users) {
+    for (let i = 0; i < users.length; i++) {
+      const user = users[i];
       if (!user.telegram_id || String(user.telegram_id).trim() === '') {
         continue;
       }
       
       try {
-        // Пытаемся получить информацию о пользователе
-        await bot.api.getChatMember(user.telegram_id, user.telegram_id);
+        // Получаем актуальную информацию о пользователе
+        const chatInfo = await bot.api.getChat(user.telegram_id);
         checkedCount++;
+        
+        // Обновляем данные пользователя в таблице если изменились
+        const currentUsername = user.username || '';
+        const currentFirstName = user.first_name || '';
+        const newUsername = chatInfo.username || '';
+        const newFirstName = chatInfo.first_name || '';
+        
+        if (currentUsername !== newUsername || currentFirstName !== newFirstName) {
+          const rowIndex = i + 2; // +2 потому что индекс 0-based и есть заголовок
+          const updatedValues = [
+            user.telegram_id,
+            newUsername,
+            newFirstName,
+            user.date_registered || '',
+            user.bot_started || '',
+            new Date().toISOString().split('T')[0] + ' ' + new Date().toTimeString().split(' ')[0]
+          ];
+          
+          await updateSheetRow(env.SHEET_ID, 'users', rowIndex, updatedValues, accessToken);
+          console.log(`[CRON] 🔄 Updated user ${user.telegram_id}: @${currentUsername} → @${newUsername}`);
+        }
         
         // Задержка чтобы не превысить rate limit (30 req/sec)
         await new Promise(resolve => setTimeout(resolve, 50));
