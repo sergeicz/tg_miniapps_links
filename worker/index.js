@@ -1627,6 +1627,19 @@ export default {
         
         let newCount = 1; // По умолчанию для нового клика
         
+        // Рассчитываем конверсию для данного URL
+        const urlClicks = clicks.filter(c => c.url === body.url);
+        const uniqueUsers = new Set(urlClicks.map(c => c.telegram_id)).size;
+        const totalClicks = urlClicks.reduce((sum, c) => sum + parseInt(c.click || 1), 0);
+        
+        // Конверсия = уникальные пользователи / общее количество кликов * 100%
+        // После добавления нового клика учитываем это в расчете
+        const willBeUniqueUsers = existingClickIndex === -1 ? uniqueUsers + 1 : uniqueUsers;
+        const willBeTotalClicks = existingClickIndex === -1 ? totalClicks + 1 : totalClicks + 1;
+        const conversionRate = willBeTotalClicks > 0 
+          ? ((willBeUniqueUsers / willBeTotalClicks) * 100).toFixed(2) 
+          : '0.00';
+        
         if (existingClickIndex !== -1) {
           // Обновляем существующую запись - увеличиваем счетчик
           const existingClick = clicks[existingClickIndex];
@@ -1635,7 +1648,7 @@ export default {
           
           const rowIndex = existingClickIndex + 2; // +2 для заголовка и 1-based индекса
           
-          // Формат: telegram_id, username, first_name, partner_title, category, url, click, first_click_date, last_click_date, last_click_time, timestamp
+          // Формат: telegram_id, username, first_name, partner_title, category, url, click, date_release, first_click_date, last_click_date, last_click_time, timestamp, conversion
           await updateSheetRow(
             env.SHEET_ID,
             'clicks',
@@ -1648,15 +1661,17 @@ export default {
               partner?.category || '',
               body.url,
               String(newCount),                      // click - увеличиваем счетчик
+              partner?.date_release || '',           // date_release - дата размещения ссылки
               existingClick.first_click_date || currentDate,  // сохраняем первую дату
               currentDate,                           // last_click_date - обновляем
               currentTime,                           // last_click_time
-              timestamp                              // timestamp
+              timestamp,                             // timestamp
+              conversionRate + '%'                   // conversion - процент конверсии
             ],
             accessToken
           );
           
-          console.log(`[CLICK] 🔄 Updated click count: ${body.telegram_id} → ${body.url} (${newCount} times)`);
+          console.log(`[CLICK] 🔄 Updated click count: ${body.telegram_id} → ${body.url} (${newCount} times), conversion: ${conversionRate}%`);
         } else {
           // Создаем новую запись
           await appendSheetRow(
@@ -1670,15 +1685,17 @@ export default {
               partner?.category || '',
               body.url,
               '1',                  // click - первый клик
+              partner?.date_release || '',  // date_release - дата размещения ссылки
               currentDate,          // first_click_date
               currentDate,          // last_click_date
               currentTime,          // last_click_time
-              timestamp             // timestamp
+              timestamp,            // timestamp
+              conversionRate + '%'  // conversion - процент конверсии
             ],
             accessToken
           );
           
-          console.log(`[CLICK] 🆕 New click recorded: ${body.telegram_id} → ${body.url}`);
+          console.log(`[CLICK] 🆕 New click recorded: ${body.telegram_id} → ${body.url}, conversion: ${conversionRate}%`);
         }
         
         // Отправляем промокод пользователю, если он есть
