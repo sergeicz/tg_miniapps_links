@@ -228,13 +228,30 @@ function setupBot(env) {
     const users = await getSheetData(env.SHEET_ID, 'users', accessToken);
     const existing = users.find(u => String(u.telegram_id) === String(chatId));
     
+    const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const username = user.username ? `@${user.username}` : '';
+    
     if (!existing) {
+      console.log(`[REGISTER] 🆕 New user: ${chatId} (@${user.username || 'no-username'})`);
+      
+      // Добавляем в таблицу users
+      // Формат: telegram_id, username, first_name, date_registered, bot_started
       await appendSheetRow(
         env.SHEET_ID,
         'users',
-        [chatId, user.username || 'N/A', user.first_name || 'Unknown', new Date().toISOString(), 'TRUE'],
+        [
+          chatId,                        // telegram_id
+          username,                      // username с @
+          user.first_name || 'Unknown',  // first_name
+          currentDate,                   // date_registered (YYYY-MM-DD)
+          'TRUE'                         // bot_started
+        ],
         accessToken
       );
+      
+      console.log(`✅ User registered: ${chatId} ${username} at ${currentDate}`);
+    } else {
+      console.log(`[REGISTER] ✓ Existing user: ${chatId} (@${user.username || 'no-username'})`);
     }
     
     // Проверяем админа
