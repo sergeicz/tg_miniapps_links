@@ -1,17 +1,47 @@
-name: Deploy Worker to Cloudflare
+name: Deploy Frontend & Backend
 
 on:
   push:
     branches:
       - main
-    paths:
-      - 'worker/**'
-      - '.github/workflows/deploy.yml'
 
 jobs:
-  deploy:
+  # Job 1: Deploy Frontend to GitHub Pages
+  deploy-frontend:
     runs-on: ubuntu-latest
-    name: Deploy Cloudflare Worker
+    name: Deploy Frontend to GitHub Pages
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './frontend'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Frontend deployment notification
+        if: success()
+        run: |
+          echo "✅ Frontend deployed successfully to GitHub Pages!"
+          echo "🌐 URL: https://sergeicz.github.io/tg_miniapps_links/frontend/"
+          echo "🚀 Version: ${{ github.sha }}"
+
+  # Job 2: Deploy Backend (Worker) to Cloudflare
+  deploy-backend:
+    runs-on: ubuntu-latest
+    name: Deploy Backend to Cloudflare Workers
     
     steps:
       - name: Checkout code
@@ -26,16 +56,7 @@ jobs:
         working-directory: ./worker
         run: npm ci
 
-      - name: Check Wrangler configuration
-        working-directory: ./worker
-        run: |
-          echo "📋 Checking wrangler.toml..."
-          cat wrangler.toml
-          echo ""
-          echo "📦 Checking package.json..."
-          cat package.json
-
-      - name: Deploy to Cloudflare Workers (direct call)
+      - name: Deploy to Cloudflare Workers
         working-directory: ./worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -43,9 +64,10 @@ jobs:
           echo "🚀 Starting Wrangler deployment..."
           npx wrangler deploy
 
-      - name: Deployment notification
+      - name: Backend deployment notification
         if: success()
         run: |
-          echo "✅ Worker deployed successfully!"
+          echo "✅ Worker deployed successfully to Cloudflare!"
+          echo "🌐 URL: https://telegram-miniapp-api.worknotdead.workers.dev"
           echo "🚀 Version: ${{ github.sha }}"
           echo "📅 Time: $(date)"
