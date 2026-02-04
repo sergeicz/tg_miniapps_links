@@ -396,8 +396,10 @@ function setupBot(env) {
     }
     
     const state = {
-      step: 'title',
+      step: 'broadcast_name',
       chatId: ctx.chat.id,
+      broadcast_name: null,
+      broadcast_id: `BR_${Date.now()}`, // Уникальный ID рассылки
       title: null,
       subtitle: null,
       image_url: null,
@@ -412,7 +414,7 @@ function setupBot(env) {
     const keyboard = new InlineKeyboard().text('❌ Отменить', 'broadcast_cancel');
     
     await ctx.editMessageText(
-      '📢 *Создание рассылки*\n\n*Шаг 1 из 4:* Заголовок\n\n📝 Введите *заголовок* рассылки (обязательно):',
+      '📢 *Создание рассылки*\n\n*Шаг 1 из 5:* Название рассылки\n\n📝 Введите *название* рассылки для аналитики (например: "Акция Январь 2026"):',
       { parse_mode: 'Markdown', reply_markup: keyboard }
     );
     await ctx.answerCallbackQuery();
@@ -540,7 +542,18 @@ function setupBot(env) {
     const text = ctx.message.text;
     let keyboard;
     
-    if (state.step === 'title') {
+    if (state.step === 'broadcast_name') {
+      state.broadcast_name = text;
+      state.step = 'title';
+      keyboard = new InlineKeyboard().text('❌ Отменить', 'broadcast_cancel');
+      
+      await saveBroadcastState(env, ctx.chat.id, state);
+      await ctx.reply(
+        `📢 *Создание рассылки*\n\n*Шаг 2 из 5:* Заголовок\n\n✅ Название сохранено:\n"${text}"\n\n📝 Введите *заголовок* рассылки (обязательно):`,
+        { parse_mode: 'Markdown', reply_markup: keyboard }
+      );
+      
+    } else if (state.step === 'title') {
       state.title = text;
       state.step = 'subtitle';
       keyboard = new InlineKeyboard()
@@ -549,7 +562,7 @@ function setupBot(env) {
       
       await saveBroadcastState(env, ctx.chat.id, state);
       await ctx.reply(
-        `📢 *Создание рассылки*\n\n*Шаг 2 из 4:* Подзаголовок\n\n✅ Заголовок сохранен:\n"${text}"\n\n📝 Введите *подзаголовок* (описание):`,
+        `📢 *Создание рассылки*\n\n*Шаг 3 из 5:* Подзаголовок\n\n✅ Заголовок сохранен:\n"${text}"\n\n📝 Введите *подзаголовок* (описание):`,
         { parse_mode: 'Markdown', reply_markup: keyboard }
       );
       
@@ -562,7 +575,7 @@ function setupBot(env) {
       
       await saveBroadcastState(env, ctx.chat.id, state);
       await ctx.reply(
-        '📢 *Создание рассылки*\n\n*Шаг 3 из 4:* Изображение\n\n🖼️ *Прикрепите изображение* или отправьте ссылку (URL):',
+        '📢 *Создание рассылки*\n\n*Шаг 4 из 5:* Изображение\n\n🖼️ *Прикрепите изображение* или отправьте ссылку (URL):',
         { parse_mode: 'Markdown', reply_markup: keyboard }
       );
       
@@ -575,7 +588,7 @@ function setupBot(env) {
       
       await saveBroadcastState(env, ctx.chat.id, state);
       await ctx.reply(
-        '📢 *Создание рассылки*\n\n*Шаг 4 из 4:* Кнопка\n\n🔗 Отправьте *текст и ссылку для кнопки* в формате:\n\nТекст кнопки | https://example.com',
+        '📢 *Создание рассылки*\n\n*Шаг 5 из 5:* Кнопка\n\n🔗 Отправьте *текст и ссылку для кнопки* в формате:\n\nТекст кнопки | https://example.com',
         { parse_mode: 'Markdown', reply_markup: keyboard }
       );
       
@@ -611,7 +624,7 @@ function setupBot(env) {
     
     await saveBroadcastState(env, ctx.chat.id, state);
     await ctx.reply(
-      '📢 *Создание рассылки*\n\n*Шаг 4 из 4:* Кнопка\n\n✅ Картинка загружена!\n\n🔗 Отправьте *текст и ссылку для кнопки* в формате:\n\nТекст кнопки | https://example.com',
+      '📢 *Создание рассылки*\n\n*Шаг 5 из 5:* Кнопка\n\n✅ Картинка загружена!\n\n🔗 Отправьте *текст и ссылку для кнопки* в формате:\n\nТекст кнопки | https://example.com',
       { parse_mode: 'Markdown', reply_markup: keyboard }
     );
   });
@@ -669,9 +682,14 @@ async function executeBroadcast(ctx, env, state) {
   if (state.title) messageText += `*${state.title}*\n`;
   if (state.subtitle) messageText += `\n${state.subtitle}`;
   
+  // Создаем промежуточную ссылку для отслеживания кликов
   let keyboard = null;
   if (state.button_text && state.button_url) {
-    keyboard = new InlineKeyboard().url(state.button_text, state.button_url);
+    // Кодируем URL партнера
+    const encodedPartnerUrl = encodeURIComponent(state.button_url);
+    // Создаем ссылку через наш воркер для отслеживания
+    const trackedUrl = `https://telegram-miniapp-api.worknotdead.workers.dev/r/${state.broadcast_id}/${encodedPartnerUrl}`;
+    keyboard = new InlineKeyboard().url(state.button_text, trackedUrl);
   }
   
   const hasImage = (state.image_url && state.image_url.trim() !== '') || (state.image_file_id && state.image_file_id.trim() !== '');
@@ -820,6 +838,37 @@ async function executeBroadcast(ctx, env, state) {
         console.error(`Failed to delete row ${rowIndex}:`, error);
       }
     }
+  }
+  
+  // Сохраняем статистику рассылки в лист broadcasts
+  const currentDate = new Date().toISOString().split('T')[0];
+  const currentTime = new Date().toISOString().split('T')[1].split('.')[0];
+  
+  try {
+    await appendSheetRow(
+      env.SHEET_ID,
+      'broadcasts',
+      [
+        state.broadcast_id || '',                    // broadcast_id
+        state.broadcast_name || 'Без названия',      // name
+        currentDate,                                  // date
+        currentTime,                                  // time
+        successCount,                                 // sent_count
+        0,                                            // read_count (пока 0)
+        0,                                            // click_count (будет обновляться)
+        state.title || '',                            // title
+        state.subtitle || '',                         // subtitle
+        state.button_text || '',                      // button_text
+        state.button_url || '',                       // button_url
+        validUsers.length,                            // total_users
+        failCount,                                    // fail_count
+        inactiveCount                                 // archived_count
+      ],
+      accessToken
+    );
+    console.log(`[BROADCAST] ✅ Statistics saved: ${state.broadcast_id} - ${state.broadcast_name}`);
+  } catch (error) {
+    console.error(`[BROADCAST] ❌ Failed to save statistics:`, error);
   }
   
   await deleteBroadcastState(env, ctx.chat.id);
@@ -1025,6 +1074,66 @@ export default {
         return await handleUpdate(request);
       }
 
+      // ═══════════════════════════════════════════════════════════
+      // BROADCAST CLICK TRACKING & REDIRECT
+      // ═══════════════════════════════════════════════════════════
+      
+      if (path.startsWith('/r/')) {
+        // Формат: /r/{broadcast_id}/{encoded_partner_url}
+        const pathParts = path.split('/').filter(p => p);
+        if (pathParts.length >= 3 && pathParts[0] === 'r') {
+          const broadcastId = pathParts[1];
+          const encodedPartnerUrl = pathParts.slice(2).join('/');
+          const partnerUrl = decodeURIComponent(encodedPartnerUrl);
+          
+          console.log(`[REDIRECT] 📊 Broadcast click tracked: ${broadcastId}`);
+          
+          // Обновляем click_count в листе broadcasts
+          try {
+            const broadcasts = await getSheetData(env.SHEET_ID, 'broadcasts', accessToken);
+            const broadcastIndex = broadcasts.findIndex(b => b.broadcast_id === broadcastId);
+            
+            if (broadcastIndex !== -1) {
+              const broadcast = broadcasts[broadcastIndex];
+              const currentClicks = parseInt(broadcast.click_count || '0') || 0;
+              const newClicks = currentClicks + 1;
+              const rowIndex = broadcastIndex + 2;
+              
+              // Обновляем только click_count, остальные колонки сохраняем
+              await updateSheetRow(
+                env.SHEET_ID,
+                'broadcasts',
+                rowIndex,
+                [
+                  broadcast.broadcast_id || '',
+                  broadcast.name || '',
+                  broadcast.date || '',
+                  broadcast.time || '',
+                  broadcast.sent_count || '0',
+                  broadcast.read_count || '0',
+                  String(newClicks),                         // click_count - обновляем
+                  broadcast.title || '',
+                  broadcast.subtitle || '',
+                  broadcast.button_text || '',
+                  broadcast.button_url || '',
+                  broadcast.total_users || '0',
+                  broadcast.fail_count || '0',
+                  broadcast.archived_count || '0'
+                ],
+                accessToken
+              );
+              
+              console.log(`[REDIRECT] ✅ Updated broadcast ${broadcastId}: clicks ${currentClicks} → ${newClicks}`);
+            }
+          } catch (error) {
+            console.error(`[REDIRECT] ❌ Failed to update broadcast clicks:`, error);
+          }
+          
+          // Редиректим на финальный URL
+          return Response.redirect(partnerUrl, 302);
+        }
+      }
+      
       // ═══════════════════════════════════════════════════════════
       // API ENDPOINTS (для Mini App)
       // ═══════════════════════════════════════════════════════════
