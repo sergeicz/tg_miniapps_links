@@ -8,6 +8,10 @@ compatibility_flags = ["nodejs_compat"]
 binding = "BROADCAST_STATE"
 id = "b883ce45a3ce4431969d209637709300"
 
+# Cron Triggers - автоматическая проверка пользователей каждые 15 минут
+[triggers]
+crons = ["*/15 * * * *"]
+
 # Переменные окружения (НЕ ДОБАВЛЯЙТЕ СЮДА СЕКРЕТЫ!)
 # Секреты добавляйте через: wrangler secret put <SECRET_NAME>
 

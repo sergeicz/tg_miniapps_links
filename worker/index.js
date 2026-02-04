@@ -793,10 +793,143 @@ async function executeBroadcast(ctx, env, state) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// АВТОМАТИЧЕСКАЯ ПРОВЕРКА ПОЛЬЗОВАТЕЛЕЙ (CRON)
+// ═══════════════════════════════════════════════════════════════
+
+async function checkAllUsers(env) {
+  console.log('[CRON] 🕐 Starting automatic user check...');
+  
+  try {
+    const creds = JSON.parse(env.CREDENTIALS_JSON);
+    const accessToken = await getAccessToken(creds);
+    const users = await getSheetData(env.SHEET_ID, 'users', accessToken);
+    
+    const bot = new Bot(env.BOT_TOKEN);
+    let checkedCount = 0;
+    let inactiveCount = 0;
+    const inactiveUsers = [];
+    
+    console.log(`[CRON] 📊 Found ${users.length} users to check`);
+    
+    // Проверяем каждого пользователя
+    for (const user of users) {
+      if (!user.telegram_id || String(user.telegram_id).trim() === '') {
+        continue;
+      }
+      
+      try {
+        // Пытаемся получить информацию о пользователе
+        await bot.api.getChatMember(user.telegram_id, user.telegram_id);
+        checkedCount++;
+        
+        // Задержка чтобы не превысить rate limit (30 req/sec)
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } catch (error) {
+        const errorCode = error.error_code;
+        const errorDescription = error.description || error.message;
+        
+        // Классифицируем неактивных
+        if (errorCode === 403 || 
+            (errorCode === 400 && (errorDescription?.includes('chat not found') || 
+                                   errorDescription?.includes('user is deactivated')))) {
+          
+          const dateOn = user.date_registered || user.first_seen || user.created_at || user.joined_date || '';
+          const reason = errorCode === 403 ? 'Заблокировал бота' : 
+                        errorDescription?.includes('chat not found') ? 'Удалил аккаунт' : 'Деактивирован';
+          
+          inactiveUsers.push({
+            telegram_id: user.telegram_id,
+            username: user.username,
+            date_on: dateOn,
+            reason: reason
+          });
+          
+          inactiveCount++;
+          console.log(`[CRON] ❌ Inactive: ${user.telegram_id} (@${user.username || 'no-username'}) - ${reason}`);
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+    }
+    
+    // Переносим неактивных в архив
+    if (inactiveUsers.length > 0) {
+      console.log(`[CRON] 📦 Moving ${inactiveUsers.length} inactive users to archive...`);
+      
+      const allUsers = await getSheetData(env.SHEET_ID, 'users', accessToken);
+      const dateOff = new Date().toISOString().split('T')[0];
+      
+      // Добавляем в pidarasy
+      for (const inactiveUser of inactiveUsers) {
+        try {
+          await appendSheetRow(
+            env.SHEET_ID,
+            'pidarasy',
+            [
+              inactiveUser.username || '',
+              inactiveUser.telegram_id || '',
+              inactiveUser.date_on,
+              dateOff
+            ],
+            accessToken
+          );
+          console.log(`[CRON] ✅ Archived: @${inactiveUser.username} (${inactiveUser.telegram_id})`);
+          await new Promise(resolve => setTimeout(resolve, 50));
+        } catch (error) {
+          console.error(`[CRON] Failed to archive ${inactiveUser.telegram_id}:`, error);
+        }
+      }
+      
+      // Удаляем из users
+      const rowsToDelete = [];
+      for (const inactiveUser of inactiveUsers) {
+        const index = allUsers.findIndex(u => String(u.telegram_id) === String(inactiveUser.telegram_id));
+        if (index !== -1) {
+          rowsToDelete.push(index + 2);
+        }
+      }
+      
+      rowsToDelete.sort((a, b) => b - a);
+      for (const rowIndex of rowsToDelete) {
+        try {
+          await deleteSheetRow(env.SHEET_ID, 'users', rowIndex, accessToken);
+          await new Promise(resolve => setTimeout(resolve, 50));
+        } catch (error) {
+          console.error(`[CRON] Failed to delete row ${rowIndex}:`, error);
+        }
+      }
+    }
+    
+    console.log(`[CRON] ✅ Check completed!`);
+    console.log(`[CRON] 📊 Stats: Checked=${checkedCount}, Inactive=${inactiveCount}, Archived=${inactiveUsers.length}`);
+    
+    return {
+      success: true,
+      checked: checkedCount,
+      inactive: inactiveCount,
+      archived: inactiveUsers.length
+    };
+  } catch (error) {
+    console.error('[CRON] ❌ Error during user check:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN HANDLER
 // ═══════════════════════════════════════════════════════════════
 
 export default {
+  // Scheduled handler для Cron Triggers
+  async scheduled(event, env, ctx) {
+    console.log('[CRON] ⏰ Triggered at:', new Date().toISOString());
+    const result = await checkAllUsers(env);
+    console.log('[CRON] 📊 Result:', result);
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
