@@ -547,11 +547,12 @@ window.addEventListener('load', () => {
   }
 });
 
-// Показ социальных сетей и футера через 5 секунд после загрузки
+// Показ социальных сетей, футера и блока перезапуска бота через 5 секунд после загрузки
 window.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
     const social = document.querySelector('social');
     const footer = document.querySelector('.app-footer');
+    const promoRestart = document.querySelector('.promo-restart-box');
     
     if (social) {
       social.classList.add('show');
@@ -561,6 +562,11 @@ window.addEventListener('DOMContentLoaded', () => {
     if (footer) {
       footer.classList.add('show');
       console.log('✨ Footer shown after 5 seconds');
+    }
+    
+    if (promoRestart) {
+      promoRestart.classList.add('show');
+      console.log('✨ Promo restart box shown after 5 seconds');
     }
   }, 5000);
 });
