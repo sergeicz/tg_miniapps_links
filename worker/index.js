@@ -685,18 +685,313 @@ function setupBot(env) {
       return;
     }
     
-    const creds = JSON.parse(env.CREDENTIALS_JSON);
-    const accessToken = await getAccessToken(creds);
-    const users = await getSheetData(env.SHEET_ID, 'users', accessToken);
+    const keyboard = new InlineKeyboard()
+      .text('📊 По активности', 'admin_users_by_activity').row()
+      .text('📅 По дате регистрации', 'admin_users_by_registration').row()
+      .text('🔢 Общая статистика', 'admin_users_stats').row()
+      .text('« Назад', 'admin_panel');
     
-    const text = `👥 *Пользователи*\n\nВсего пользователей: ${users.length}\n\nСписок пользователей сохранен в Google Sheets.`;
+    await ctx.editMessageText(
+      '👥 *Пользователи*\n\nВыберите способ отображения:',
+      { parse_mode: 'Markdown', reply_markup: keyboard }
+    );
+    await ctx.answerCallbackQuery();
+  });
+
+  // Список пользователей по активности
+  bot.callbackQuery(/^admin_users_by_activity(?:_page_(\d+))?$/, async (ctx) => {
+    const isAdmin = await checkAdmin(env, ctx.from);
+    if (!isAdmin) {
+      await ctx.answerCallbackQuery('❌ У вас нет прав администратора');
+      return;
+    }
     
-    const keyboard = new InlineKeyboard().text('« Назад', 'admin_panel');
+    await ctx.answerCallbackQuery('📊 Загружаю список...');
     
-    await ctx.editMessageText(text, {
-      parse_mode: 'Markdown',
-      reply_markup: keyboard
-    });
+    try {
+      const creds = JSON.parse(env.CREDENTIALS_JSON);
+      const accessToken = await getAccessToken(creds);
+      const users = await getSheetData(env.SHEET_ID, 'users', accessToken);
+      const clicks = await getSheetData(env.SHEET_ID, 'clicks', accessToken);
+      
+      const page = ctx.match[1] ? parseInt(ctx.match[1]) : 1;
+      const perPage = 15;
+      
+      // Фильтруем пользователей с username и добавляем статистику
+      const usersWithUsername = users
+        .filter(u => u.username && u.username !== '')
+        .map(u => {
+          const userClicks = clicks.filter(c => String(c.telegram_id) === String(u.telegram_id));
+          const totalClicks = userClicks.reduce((sum, c) => sum + parseInt(c.click || 1), 0);
+          
+          return {
+            ...u,
+            totalClicks,
+            lastActiveDate: new Date(u.last_active || u.date_registered || '2020-01-01')
+          };
+        });
+      
+      // Сортируем по последней активности (самые активные сначала)
+      usersWithUsername.sort((a, b) => b.lastActiveDate - a.lastActiveDate);
+      
+      const totalUsers = usersWithUsername.length;
+      const totalPages = Math.ceil(totalUsers / perPage);
+      const startIndex = (page - 1) * perPage;
+      const endIndex = Math.min(startIndex + perPage, totalUsers);
+      const pageUsers = usersWithUsername.slice(startIndex, endIndex);
+      
+      if (totalUsers === 0) {
+        const keyboard = new InlineKeyboard().text('« Назад', 'admin_users');
+        await ctx.editMessageText(
+          '👥 *Пользователи с username*\n\n📭 Пользователей с username пока нет.',
+          { parse_mode: 'Markdown', reply_markup: keyboard }
+        );
+        return;
+      }
+      
+      let text = `👥 *Пользователи с username* (по активности)\n\n`;
+      text += `📊 Всего: ${totalUsers} | Страница ${page}/${totalPages}\n\n`;
+      
+      pageUsers.forEach((user, index) => {
+        const position = startIndex + index + 1;
+        const username = user.username.startsWith('@') ? user.username : `@${user.username}`;
+        const firstName = user.first_name || 'Н/Д';
+        const registered = user.date_registered || 'Н/Д';
+        const lastActive = user.last_active || 'Н/Д';
+        const clicks = user.totalClicks || 0;
+        const botStarted = user.bot_started === 'TRUE' ? '✅' : '❌';
+        
+        text += `${position}. ${username}\n`;
+        text += `   👤 ${firstName}\n`;
+        text += `   📅 Рег: ${registered} | Активен: ${lastActive}\n`;
+        text += `   🖱️ Кликов: ${clicks} | Бот: ${botStarted}\n\n`;
+      });
+      
+      // Пагинация
+      const keyboard = new InlineKeyboard();
+      
+      if (totalPages > 1) {
+        const buttons = [];
+        if (page > 1) {
+          buttons.push({ text: '« Пред', callback_data: `admin_users_by_activity_page_${page - 1}` });
+        }
+        buttons.push({ text: `${page}/${totalPages}`, callback_data: 'noop' });
+        if (page < totalPages) {
+          buttons.push({ text: 'След »', callback_data: `admin_users_by_activity_page_${page + 1}` });
+        }
+        
+        buttons.forEach((btn, idx) => {
+          keyboard.text(btn.text, btn.callback_data);
+          if (idx < buttons.length - 1) keyboard.text(' ', 'noop');
+        });
+        keyboard.row();
+      }
+      
+      keyboard.text('« Назад', 'admin_users');
+      
+      await ctx.editMessageText(text, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      });
+      
+    } catch (error) {
+      console.error('[ADMIN_USERS_BY_ACTIVITY] Error:', error);
+      const keyboard = new InlineKeyboard().text('« Назад', 'admin_users');
+      await ctx.editMessageText(
+        '❌ Ошибка при загрузке списка пользователей.',
+        { reply_markup: keyboard }
+      );
+    }
+  });
+
+  // Список пользователей по дате регистрации
+  bot.callbackQuery(/^admin_users_by_registration(?:_page_(\d+))?$/, async (ctx) => {
+    const isAdmin = await checkAdmin(env, ctx.from);
+    if (!isAdmin) {
+      await ctx.answerCallbackQuery('❌ У вас нет прав администратора');
+      return;
+    }
+    
+    await ctx.answerCallbackQuery('📊 Загружаю список...');
+    
+    try {
+      const creds = JSON.parse(env.CREDENTIALS_JSON);
+      const accessToken = await getAccessToken(creds);
+      const users = await getSheetData(env.SHEET_ID, 'users', accessToken);
+      const clicks = await getSheetData(env.SHEET_ID, 'clicks', accessToken);
+      
+      const page = ctx.match[1] ? parseInt(ctx.match[1]) : 1;
+      const perPage = 15;
+      
+      // Фильтруем пользователей с username и добавляем статистику
+      const usersWithUsername = users
+        .filter(u => u.username && u.username !== '')
+        .map(u => {
+          const userClicks = clicks.filter(c => String(c.telegram_id) === String(u.telegram_id));
+          const totalClicks = userClicks.reduce((sum, c) => sum + parseInt(c.click || 1), 0);
+          
+          return {
+            ...u,
+            totalClicks,
+            registrationDate: new Date(u.date_registered || '2020-01-01')
+          };
+        });
+      
+      // Сортируем по дате регистрации (новые сначала)
+      usersWithUsername.sort((a, b) => b.registrationDate - a.registrationDate);
+      
+      const totalUsers = usersWithUsername.length;
+      const totalPages = Math.ceil(totalUsers / perPage);
+      const startIndex = (page - 1) * perPage;
+      const endIndex = Math.min(startIndex + perPage, totalUsers);
+      const pageUsers = usersWithUsername.slice(startIndex, endIndex);
+      
+      if (totalUsers === 0) {
+        const keyboard = new InlineKeyboard().text('« Назад', 'admin_users');
+        await ctx.editMessageText(
+          '👥 *Пользователи с username*\n\n📭 Пользователей с username пока нет.',
+          { parse_mode: 'Markdown', reply_markup: keyboard }
+        );
+        return;
+      }
+      
+      let text = `👥 *Пользователи с username* (по дате регистрации)\n\n`;
+      text += `📊 Всего: ${totalUsers} | Страница ${page}/${totalPages}\n\n`;
+      
+      pageUsers.forEach((user, index) => {
+        const position = startIndex + index + 1;
+        const username = user.username.startsWith('@') ? user.username : `@${user.username}`;
+        const firstName = user.first_name || 'Н/Д';
+        const registered = user.date_registered || 'Н/Д';
+        const lastActive = user.last_active || 'Н/Д';
+        const clicks = user.totalClicks || 0;
+        const botStarted = user.bot_started === 'TRUE' ? '✅' : '❌';
+        
+        text += `${position}. ${username}\n`;
+        text += `   👤 ${firstName} | Бот: ${botStarted}\n`;
+        text += `   📅 Регистрация: ${registered}\n`;
+        text += `   📅 Последняя активность: ${lastActive}\n`;
+        text += `   🖱️ Кликов: ${clicks}\n\n`;
+      });
+      
+      // Пагинация
+      const keyboard = new InlineKeyboard();
+      
+      if (totalPages > 1) {
+        const buttons = [];
+        if (page > 1) {
+          buttons.push({ text: '« Пред', callback_data: `admin_users_by_registration_page_${page - 1}` });
+        }
+        buttons.push({ text: `${page}/${totalPages}`, callback_data: 'noop' });
+        if (page < totalPages) {
+          buttons.push({ text: 'След »', callback_data: `admin_users_by_registration_page_${page + 1}` });
+        }
+        
+        buttons.forEach((btn, idx) => {
+          keyboard.text(btn.text, btn.callback_data);
+          if (idx < buttons.length - 1) keyboard.text(' ', 'noop');
+        });
+        keyboard.row();
+      }
+      
+      keyboard.text('« Назад', 'admin_users');
+      
+      await ctx.editMessageText(text, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      });
+      
+    } catch (error) {
+      console.error('[ADMIN_USERS_BY_REGISTRATION] Error:', error);
+      const keyboard = new InlineKeyboard().text('« Назад', 'admin_users');
+      await ctx.editMessageText(
+        '❌ Ошибка при загрузке списка пользователей.',
+        { reply_markup: keyboard }
+      );
+    }
+  });
+
+  // Общая статистика пользователей
+  bot.callbackQuery('admin_users_stats', async (ctx) => {
+    const isAdmin = await checkAdmin(env, ctx.from);
+    if (!isAdmin) {
+      await ctx.answerCallbackQuery('❌ У вас нет прав администратора');
+      return;
+    }
+    
+    await ctx.answerCallbackQuery('📊 Формирую статистику...');
+    
+    try {
+      const creds = JSON.parse(env.CREDENTIALS_JSON);
+      const accessToken = await getAccessToken(creds);
+      const users = await getSheetData(env.SHEET_ID, 'users', accessToken);
+      const clicks = await getSheetData(env.SHEET_ID, 'clicks', accessToken);
+      
+      const totalUsers = users.length;
+      const usersWithUsername = users.filter(u => u.username && u.username !== '').length;
+      const usersWithoutUsername = totalUsers - usersWithUsername;
+      const botStartedUsers = users.filter(u => u.bot_started === 'TRUE').length;
+      const botNotStartedUsers = totalUsers - botStartedUsers;
+      
+      // Активность за последние 7 дней
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const activeLastWeek = users.filter(u => {
+        const lastActive = new Date(u.last_active || '2020-01-01');
+        return lastActive >= sevenDaysAgo;
+      }).length;
+      
+      // ТОП-5 самых активных пользователей (по кликам)
+      const usersWithClicks = users
+        .map(u => {
+          const userClicks = clicks.filter(c => String(c.telegram_id) === String(u.telegram_id));
+          const totalClicks = userClicks.reduce((sum, c) => sum + parseInt(c.click || 1), 0);
+          return { ...u, totalClicks };
+        })
+        .filter(u => u.totalClicks > 0)
+        .sort((a, b) => b.totalClicks - a.totalClicks)
+        .slice(0, 5);
+      
+      let topUsersText = '';
+      if (usersWithClicks.length > 0) {
+        topUsersText = '\n*🏆 ТОП-5 самых активных:*\n';
+        usersWithClicks.forEach((user, index) => {
+          const username = user.username ? (user.username.startsWith('@') ? user.username : `@${user.username}`) : user.first_name || 'Н/Д';
+          topUsersText += `${index + 1}. ${username} - ${user.totalClicks} кликов\n`;
+        });
+      }
+      
+      const text = `📊 *Общая статистика пользователей*\n\n` +
+                  `👥 *Всего пользователей:* ${totalUsers}\n` +
+                  `   • С username: ${usersWithUsername}\n` +
+                  `   • Без username: ${usersWithoutUsername}\n\n` +
+                  `🤖 *Статус бота:*\n` +
+                  `   • Запустили: ${botStartedUsers}\n` +
+                  `   • Не запустили: ${botNotStartedUsers}\n\n` +
+                  `📈 *Активность:*\n` +
+                  `   • Активны за последнюю неделю: ${activeLastWeek}\n` +
+                  `   • Всего кликов: ${clicks.length}` +
+                  topUsersText;
+      
+      const keyboard = new InlineKeyboard().text('« Назад', 'admin_users');
+      
+      await ctx.editMessageText(text, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      });
+      
+    } catch (error) {
+      console.error('[ADMIN_USERS_STATS] Error:', error);
+      const keyboard = new InlineKeyboard().text('« Назад', 'admin_users');
+      await ctx.editMessageText(
+        '❌ Ошибка при формировании статистики.',
+        { reply_markup: keyboard }
+      );
+    }
+  });
+
+  // Обработчик для noop кнопок (пустая кнопка для пагинации)
+  bot.callbackQuery('noop', async (ctx) => {
     await ctx.answerCallbackQuery();
   });
 
