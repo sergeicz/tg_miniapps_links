@@ -1566,6 +1566,145 @@ async function sendWeeklyPartnerReports(env) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// MONTHLY PARTNER REPORTS
+// ═══════════════════════════════════════════════════════════════
+
+async function sendMonthlyPartnerReports(env) {
+  try {
+    console.log('[MONTHLY_REPORT] 📊 Starting monthly partner reports...');
+    
+    const creds = JSON.parse(env.CREDENTIALS_JSON);
+    const accessToken = await getAccessToken(creds);
+    
+    // Получаем всех партнеров
+    const partners = await getSheetData(env.SHEET_ID, 'partners', accessToken);
+    console.log(`[MONTHLY_REPORT] Found ${partners.length} partners`);
+    
+    // Получаем все клики
+    const clicks = await getSheetData(env.SHEET_ID, 'clicks', accessToken);
+    console.log(`[MONTHLY_REPORT] Found ${clicks.length} total clicks`);
+    
+    const bot = setupBot(env);
+    let reportsSent = 0;
+    let reportsFailed = 0;
+    
+    // Текущая дата для проверки месяца
+    const now = new Date();
+    const oneMonthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+    const previousMonthName = oneMonthAgo.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+    
+    for (const partner of partners) {
+      // Проверяем что есть представитель
+      if (!partner.predstavitel || partner.predstavitel.trim() === '') {
+        console.log(`[MONTHLY_REPORT] ⏭️ Skipping ${partner.title}: no representative`);
+        continue;
+      }
+      
+      const username = partner.predstavitel.replace('@', '').trim();
+      console.log(`[MONTHLY_REPORT] 📧 Processing report for ${partner.title} → @${username}`);
+      
+      // Собираем статистику по партнеру
+      const partnerClicks = clicks.filter(c => c.url === partner.url);
+      
+      if (partnerClicks.length === 0) {
+        console.log(`[MONTHLY_REPORT] ⏭️ Skipping ${partner.title}: no clicks yet`);
+        continue;
+      }
+      
+      // Считаем показатели за все время
+      const totalClicks = partnerClicks.reduce((sum, c) => sum + parseInt(c.click || 1), 0);
+      const uniqueUsers = new Set(partnerClicks.map(c => c.telegram_id)).size;
+      const conversionRate = totalClicks > 0 ? ((uniqueUsers / totalClicks) * 100).toFixed(2) : '0.00';
+      
+      // Клики за последний месяц
+      const monthClicks = partnerClicks.filter(c => {
+        const clickDate = new Date(c.last_click_date || c.first_click_date);
+        return clickDate >= oneMonthAgo;
+      });
+      const monthTotalClicks = monthClicks.reduce((sum, c) => sum + parseInt(c.click || 1), 0);
+      const monthUniqueUsers = new Set(monthClicks.map(c => c.telegram_id)).size;
+      const monthConversion = monthTotalClicks > 0 ? ((monthUniqueUsers / monthTotalClicks) * 100).toFixed(2) : '0.00';
+      
+      // Динамика по дням (топ-5 дней по активности)
+      const dailyStats = {};
+      monthClicks.forEach(c => {
+        const date = c.last_click_date || c.first_click_date;
+        if (date) {
+          dailyStats[date] = (dailyStats[date] || 0) + parseInt(c.click || 1);
+        }
+      });
+      const topDays = Object.entries(dailyStats)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([date, clicks]) => `  • ${date}: ${clicks} кликов`)
+        .join('\n');
+      
+      // Формируем отчет
+      const report = `📊 *Ежемесячный отчет по партнерству*\n` +
+                    `📅 *Период:* ${previousMonthName}\n\n` +
+                    `🏷️ *Партнер:* ${partner.title}\n` +
+                    `📁 *Категория:* ${partner.category || 'Не указана'}\n` +
+                    `📅 *Дата размещения:* ${partner.date_release || 'Не указана'}\n` +
+                    `🔗 *Ссылка:* ${partner.url}\n\n` +
+                    `*📈 Общая статистика (за все время):*\n` +
+                    `👥 Уникальных пользователей: ${uniqueUsers}\n` +
+                    `🖱️ Всего кликов: ${totalClicks}\n` +
+                    `📊 Конверсия: ${conversionRate}%\n\n` +
+                    `*🗓️ За последний месяц:*\n` +
+                    `👥 Новых пользователей: ${monthUniqueUsers}\n` +
+                    `🖱️ Кликов: ${monthTotalClicks}\n` +
+                    `📊 Конверсия за месяц: ${monthConversion}%\n\n` +
+                    (topDays ? `*📅 Самые активные дни месяца:*\n${topDays}\n\n` : '') +
+                    `_Отчет отправлен: ${now.toLocaleDateString('ru-RU')} ${now.toLocaleTimeString('ru-RU')}_`;
+      
+      try {
+        // Получаем пользователя по username
+        const users = await getSheetData(env.SHEET_ID, 'users', accessToken);
+        const user = users.find(u => 
+          u.username && u.username.toLowerCase() === username.toLowerCase()
+        );
+        
+        if (!user) {
+          console.log(`[MONTHLY_REPORT] ⚠️ User @${username} not found in database`);
+          reportsFailed++;
+          continue;
+        }
+        
+        if (!user.telegram_id) {
+          console.log(`[MONTHLY_REPORT] ⚠️ User @${username} has no telegram_id`);
+          reportsFailed++;
+          continue;
+        }
+        
+        // Отправляем отчет
+        await bot.api.sendMessage(user.telegram_id, report, {
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true
+        });
+        
+        console.log(`[MONTHLY_REPORT] ✅ Report sent to @${username} (${user.telegram_id})`);
+        reportsSent++;
+        
+      } catch (error) {
+        if (error.error_code === 403) {
+          console.log(`[MONTHLY_REPORT] ⚠️ Bot not started by @${username}`);
+        } else {
+          console.error(`[MONTHLY_REPORT] ❌ Failed to send to @${username}:`, error.message);
+        }
+        reportsFailed++;
+      }
+    }
+    
+    console.log(`[MONTHLY_REPORT] 📊 Completed: ${reportsSent} sent, ${reportsFailed} failed`);
+    return { success: true, sent: reportsSent, failed: reportsFailed };
+    
+  } catch (error) {
+    console.error('[MONTHLY_REPORT] ❌ Error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN HANDLER
 // ═══════════════════════════════════════════════════════════════
 
@@ -1574,9 +1713,10 @@ export default {
   async scheduled(event, env, ctx) {
     console.log('[CRON] ⏰ Triggered at:', new Date().toISOString());
     
-    // Определяем день недели (0 = воскресенье, 1 = понедельник, ...)
+    // Определяем день недели и число месяца
     const now = new Date();
     const dayOfWeek = now.getDay();
+    const dayOfMonth = now.getDate();
     const hour = now.getHours();
     
     // Проверка и архивация неактивных пользователей (каждые 5 минут)
@@ -1590,8 +1730,15 @@ export default {
     // Еженедельные отчеты партнерам (каждый понедельник в 10:00 UTC)
     if (dayOfWeek === 1 && hour === 10) {
       console.log('[CRON] 📊 Sending weekly partner reports...');
-      const reportsResult = await sendWeeklyPartnerReports(env);
-      console.log('[CRON] 📧 Weekly reports result:', reportsResult);
+      const weeklyReportsResult = await sendWeeklyPartnerReports(env);
+      console.log('[CRON] 📧 Weekly reports result:', weeklyReportsResult);
+    }
+    
+    // Ежемесячные отчеты партнерам (1-го числа каждого месяца в 12:00 UTC)
+    if (dayOfMonth === 1 && hour === 12) {
+      console.log('[CRON] 📊 Sending monthly partner reports...');
+      const monthlyReportsResult = await sendMonthlyPartnerReports(env);
+      console.log('[CRON] 📧 Monthly reports result:', monthlyReportsResult);
     }
   },
 
