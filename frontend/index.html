@@ -988,6 +988,7 @@ async function loadPartners() {
 
   try {
     const partners = await safeFetch(`${CONFIG.API_URL}/api/partners`);
+    console.log('[PARTNERS] Data loaded:', partners);
 
     if (!partners || partners.length === 0) {
       container.innerHTML = '<p style="text-align:center;">Партнерские ссылки пока не добавлены</p>';
@@ -1012,6 +1013,8 @@ async function loadPartners() {
       div.appendChild(h);
 
       links.forEach(link => {
+        console.log(`[BTN] ${link.title} | Logo: ${link.logo_url || 'none'}`);
+        
         const a = document.createElement('a');
         a.className = 'modern-btn';
         a.href = link.url;
@@ -1020,12 +1023,17 @@ async function loadPartners() {
         
         // Добавляем логотип если есть
         if (link.logo_url && link.logo_url.trim() !== '') {
+          console.log('[LOGO] Adding:', link.logo_url);
           const logo = document.createElement('img');
           logo.src = link.logo_url;
           logo.alt = link.title;
           logo.className = 'btn-logo';
           logo.onerror = function() {
-            this.style.display = 'none'; // Скрыть если не загрузилось
+            console.error('[LOGO] Load failed:', link.logo_url);
+            this.style.display = 'none';
+          };
+          logo.onload = function() {
+            console.log('[LOGO] Load success:', link.logo_url);
           };
           a.appendChild(logo);
         }
