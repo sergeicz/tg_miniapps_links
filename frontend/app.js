@@ -333,22 +333,33 @@ async function loadPartners() {
 
 // Обработка клика по ссылке
 async function handleLinkClick(event, link) {
+  // ВАЖНО: Предотвращаем немедленный переход по ссылке
+  event.preventDefault();
+  
   try {
     console.log('[CLICK] Tracking click:', link.title || link.url);
     console.log('[CLICK] User ID:', user.id);
     console.log('[CLICK] Partner data:', { title: link.title, url: link.url, promocode: link.promocode });
     
-    // Регистрация клика (не блокируем переход)
-    safeFetch(`${CONFIG.API_URL}/api/click`, {
-      method: 'POST',
-      body: JSON.stringify({
-        telegram_id: user.id,
-        url: link.url,
-        title: link.title,
-        category: link.category,
-      }),
-    }).then(response => {
+    // Вибрация для обратной связи
+    if (tg.HapticFeedback) {
+      tg.HapticFeedback.impactOccurred('light');
+    }
+    
+    // Регистрация клика - ЖДЕМ завершения
+    try {
+      const response = await safeFetch(`${CONFIG.API_URL}/api/click`, {
+        method: 'POST',
+        body: JSON.stringify({
+          telegram_id: user.id,
+          url: link.url,
+          title: link.title,
+          category: link.category,
+        }),
+      });
+      
       console.log('[CLICK] Response:', response);
+      
       if (response.promocode_sent) {
         console.log('[PROMOCODE] ✅ Промокод отправлен в бот!');
         // Показываем уведомление пользователю
@@ -360,16 +371,19 @@ async function handleLinkClick(event, link) {
           });
         }
       }
-    }).catch(err => {
+    } catch (err) {
       console.error('[CLICK] Tracking failed:', err);
-    });
-
-    // Вибрация для обратной связи
-    if (tg.HapticFeedback) {
-      tg.HapticFeedback.impactOccurred('light');
+      // Даже если трекинг не удался, все равно откроем ссылку
     }
+    
+    // Теперь открываем ссылку
+    console.log('[CLICK] Opening URL:', link.url);
+    window.open(link.url, '_blank');
+    
   } catch (error) {
     console.error('Link click handler error:', error);
+    // В случае ошибки все равно откроем ссылку
+    window.open(link.url, '_blank');
   }
 }
 
