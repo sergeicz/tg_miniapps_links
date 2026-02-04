@@ -132,6 +132,21 @@ async function appendSheetRow(sheetId, sheetName, values, accessToken) {
   return response.json();
 }
 
+async function updateSheetRow(sheetId, sheetName, rowIndex, values, accessToken) {
+  // rowIndex - это индекс строки (1-based, где 1 = заголовок, 2 = первая строка данных)
+  const range = `${sheetName}!A${rowIndex}:Z${rowIndex}`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueInputOption=RAW`;
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ values: [values] }),
+  });
+  return response.json();
+}
+
 async function deleteSheetRow(sheetId, sheetName, rowIndex, accessToken) {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}:batchUpdate`;
   const response = await fetch(url, {
@@ -235,7 +250,7 @@ function setupBot(env) {
       console.log(`[REGISTER] 🆕 New user: ${chatId} (@${user.username || 'no-username'})`);
       
       // Добавляем в таблицу users
-      // Формат: telegram_id, username, first_name, date_registered, bot_started
+      // Формат: telegram_id, username, first_name, date_registered, bot_started, last_active
       await appendSheetRow(
         env.SHEET_ID,
         'users',
@@ -244,7 +259,8 @@ function setupBot(env) {
           username,                      // username с @
           user.first_name || 'Unknown',  // first_name
           currentDate,                   // date_registered (YYYY-MM-DD)
-          'TRUE'                         // bot_started
+          'TRUE',                        // bot_started
+          currentDate                    // last_active (YYYY-MM-DD)
         ],
         accessToken
       );
@@ -252,6 +268,43 @@ function setupBot(env) {
       console.log(`✅ User registered: ${chatId} ${username} at ${currentDate}`);
     } else {
       console.log(`[REGISTER] ✓ Existing user: ${chatId} (@${user.username || 'no-username'})`);
+      
+      // Обновляем данные существующего пользователя
+      const userIndex = users.findIndex(u => String(u.telegram_id) === String(chatId));
+      if (userIndex !== -1) {
+        const rowIndex = userIndex + 2; // +2 потому что: +1 для заголовка, +1 для 1-based индекса
+        
+        // Проверяем изменились ли данные
+        const needsUpdate = 
+          existing.username !== username || 
+          existing.first_name !== (user.first_name || 'Unknown') ||
+          existing.bot_started !== 'TRUE' ||
+          existing.last_active !== currentDate;
+        
+        if (needsUpdate) {
+          console.log(`[REGISTER] 🔄 Updating user data: ${chatId}`);
+          
+          // Обновляем строку (сохраняем date_registered из existing)
+          await updateSheetRow(
+            env.SHEET_ID,
+            'users',
+            rowIndex,
+            [
+              chatId,                              // telegram_id
+              username,                            // username с @ (обновленный)
+              user.first_name || 'Unknown',        // first_name (обновленный)
+              existing.date_registered || currentDate,  // date_registered (сохраняем старую)
+              'TRUE',                              // bot_started (обновляем на TRUE)
+              currentDate                          // last_active (обновляем)
+            ],
+            accessToken
+          );
+          
+          console.log(`✅ User data updated: ${chatId} ${username}`);
+        } else {
+          console.log(`[REGISTER] ✓ No changes for user: ${chatId}`);
+        }
+      }
     }
     
     // Проверяем админа
@@ -996,14 +1049,45 @@ export default {
         const body = await request.json();
         const users = await getSheetData(env.SHEET_ID, 'users', accessToken);
         const existing = users.find(u => String(u.telegram_id) === String(body.id));
+        const currentDate = new Date().toISOString().split('T')[0];
 
         if (!existing) {
+          // Добавляем нового пользователя
           await appendSheetRow(
             env.SHEET_ID,
             'users',
-            [body.id, body.username || 'N/A', body.first_name || 'Unknown', new Date().toISOString(), 'TRUE'],
+            [
+              body.id, 
+              body.username || 'N/A', 
+              body.first_name || 'Unknown', 
+              currentDate,  // date_registered
+              'TRUE',       // bot_started
+              currentDate   // last_active
+            ],
             accessToken
           );
+          console.log(`[API] 🆕 New user registered via API: ${body.id}`);
+        } else {
+          // Обновляем существующего пользователя
+          const userIndex = users.findIndex(u => String(u.telegram_id) === String(body.id));
+          if (userIndex !== -1) {
+            const rowIndex = userIndex + 2;
+            await updateSheetRow(
+              env.SHEET_ID,
+              'users',
+              rowIndex,
+              [
+                body.id,
+                body.username || existing.username || 'N/A',
+                body.first_name || existing.first_name || 'Unknown',
+                existing.date_registered || currentDate,
+                'TRUE',      // bot_started
+                currentDate  // last_active (обновляем)
+              ],
+              accessToken
+            );
+            console.log(`[API] 🔄 User updated via API: ${body.id}`);
+          }
         }
 
         return jsonResponse({ ok: true, registered: !existing });
