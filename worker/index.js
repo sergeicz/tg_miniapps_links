@@ -98,11 +98,18 @@ function str2ab(str) {
 }
 
 async function getSheetData(sheetId, sheetName, accessToken) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${sheetName}!A:Z`;
+  const range = `${sheetName}!A:Z`;
+  const encodedRange = encodeURIComponent(range);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodedRange}`;
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   const data = await response.json();
+  
+  if (data.error) {
+    console.error(`[getSheetData] ❌ Error reading sheet "${sheetName}":`, data.error);
+    return [];
+  }
   
   if (!data.values || data.values.length === 0) {
     return [];
@@ -121,7 +128,9 @@ async function getSheetData(sheetId, sheetName, accessToken) {
 }
 
 async function appendSheetRow(sheetId, sheetName, values, accessToken) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${sheetName}!A:Z:append?valueInputOption=RAW`;
+  const range = `${sheetName}!A:Z`;
+  const encodedRange = encodeURIComponent(range);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodedRange}:append?valueInputOption=RAW`;
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -130,13 +139,21 @@ async function appendSheetRow(sheetId, sheetName, values, accessToken) {
     },
     body: JSON.stringify({ values: [values] }),
   });
-  return response.json();
+  const result = await response.json();
+  
+  // Логируем для отладки
+  if (result.error) {
+    console.error(`[appendSheetRow] ❌ Error appending to sheet "${sheetName}":`, result.error);
+  }
+  
+  return result;
 }
 
 async function updateSheetRow(sheetId, sheetName, rowIndex, values, accessToken) {
   // rowIndex - это индекс строки (1-based, где 1 = заголовок, 2 = первая строка данных)
   const range = `${sheetName}!A${rowIndex}:Z${rowIndex}`;
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueInputOption=RAW`;
+  const encodedRange = encodeURIComponent(range);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodedRange}?valueInputOption=RAW`;
   const response = await fetch(url, {
     method: 'PUT',
     headers: {
@@ -145,7 +162,14 @@ async function updateSheetRow(sheetId, sheetName, rowIndex, values, accessToken)
     },
     body: JSON.stringify({ values: [values] }),
   });
-  return response.json();
+  const result = await response.json();
+  
+  // Логируем для отладки
+  if (result.error) {
+    console.error(`[updateSheetRow] ❌ Error updating sheet "${sheetName}" row ${rowIndex}:`, result.error);
+  }
+  
+  return result;
 }
 
 async function getSheetIdByName(spreadsheetId, sheetName, accessToken) {
@@ -157,6 +181,23 @@ async function getSheetIdByName(spreadsheetId, sheetName, accessToken) {
   
   const sheet = data.sheets.find(s => s.properties.title === sheetName);
   return sheet ? sheet.properties.sheetId : 0;
+}
+
+async function getAllSheetNames(spreadsheetId, accessToken) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const data = await response.json();
+  
+  if (!data.sheets) {
+    console.error('[getAllSheetNames] No sheets found in response');
+    return [];
+  }
+  
+  const sheetNames = data.sheets.map(s => s.properties.title);
+  console.log('[getAllSheetNames] Found sheets:', sheetNames);
+  return sheetNames;
 }
 
 async function deleteSheetRow(spreadsheetId, sheetName, rowIndex, accessToken) {
@@ -231,15 +272,20 @@ async function checkRepresentative(env, user) {
     const accessToken = await getAccessToken(creds);
     const partners = await getSheetData(env.SHEET_ID, 'partners', accessToken);
     
-    const username = user.username.toLowerCase();
+    // Нормализуем username пользователя (убираем @ и приводим к нижнему регистру)
+    const normalizedUsername = user.username.toLowerCase().replace('@', '').trim();
     
     // Ищем партнера, где этот пользователь является представителем
-    const partnerData = partners.find(p => 
-      p.predstavitel && 
-      p.predstavitel.toLowerCase().replace('@', '') === username
-    );
+    const partnerData = partners.find(p => {
+      if (!p.predstavitel) return false;
+      
+      // Нормализуем представителя из таблицы (убираем @ и приводим к нижнему регистру)
+      const normalizedPredstavitel = p.predstavitel.toLowerCase().replace('@', '').trim();
+      
+      return normalizedPredstavitel === normalizedUsername;
+    });
     
-    console.log(`Representative check for ${user.username}:`, partnerData ? partnerData.title : 'not found');
+    console.log(`Representative check for ${user.username} (normalized: ${normalizedUsername}):`, partnerData ? partnerData.title : 'not found');
     return partnerData || null;
   } catch (error) {
     console.error('Error checking representative:', error);
@@ -362,7 +408,7 @@ function setupBot(env) {
     }
     
     if (partnerData) {
-      keyboard.row().text('📊 Личный кабинет представителя', 'representative_cabinet');
+      keyboard.row().text('📊 Кабинет партнёра', 'representative_cabinet');
     }
     
     await ctx.reply(
@@ -1291,7 +1337,7 @@ function setupBot(env) {
     }
     
     if (partnerData) {
-      keyboard.row().text('📊 Личный кабинет представителя', 'representative_cabinet');
+      keyboard.row().text('📊 Кабинет партнёра', 'representative_cabinet');
     }
     
     await ctx.editMessageText(
@@ -1321,7 +1367,7 @@ function setupBot(env) {
       .text('« Назад', 'back_to_start');
     
     await ctx.editMessageText(
-      `📊 *Личный кабинет представителя*\n\n` +
+      `📊 *Кабинет партнёра*\n\n` +
       `🏷️ *Ваш партнер:* ${partnerData.title}\n` +
       `📁 *Категория:* ${partnerData.category || 'Не указана'}\n` +
       `📅 *Дата размещения:* ${partnerData.date_release || 'Не указана'}\n\n` +
@@ -2084,29 +2130,40 @@ async function executeBroadcast(ctx, env, state) {
   // Формат таблицы: broadcast_id, name, date, time, sent_count, read_count, click_count, title, subtitle, button_text, button_url, total_users, fail_count, archived_count, partner
   let saveError = null;
   try {
-    await appendSheetRow(
+    const broadcastData = [
+      state.broadcast_id || '',                    // broadcast_id
+      state.broadcast_name || 'Без названия',      // name
+      currentDate,                                  // date
+      currentTime,                                  // time
+      successCount,                                 // sent_count
+      readCount,                                    // read_count (= sent_count)
+      0,                                            // click_count (будет обновляться)
+      state.title || '',                            // title
+      state.subtitle || '',                         // subtitle
+      state.button_text || '',                      // button_text
+      state.button_url || '',                       // button_url
+      validUsers.length,                            // total_users
+      failCount,                                    // fail_count
+      inactiveCount,                                // archived_count
+      state.partner || ''                           // partner
+    ];
+    
+    console.log(`[BROADCAST] 📊 Saving broadcast data:`, JSON.stringify(broadcastData));
+    console.log(`[BROADCAST] 📋 Sheet ID: ${env.SHEET_ID}, Sheet: broadcasts`);
+    
+    // Отладка: получаем список всех листов
+    const allSheets = await getAllSheetNames(env.SHEET_ID, accessToken);
+    console.log(`[BROADCAST] 📄 Available sheets in spreadsheet:`, allSheets);
+    
+    const result = await appendSheetRow(
       env.SHEET_ID,
       'broadcasts',
-      [
-        state.broadcast_id || '',                    // broadcast_id
-        state.broadcast_name || 'Без названия',      // name
-        currentDate,                                  // date
-        currentTime,                                  // time
-        successCount,                                 // sent_count
-        readCount,                                    // read_count (= sent_count)
-        0,                                            // click_count (будет обновляться)
-        state.title || '',                            // title
-        state.subtitle || '',                         // subtitle
-        state.button_text || '',                      // button_text
-        state.button_url || '',                       // button_url
-        validUsers.length,                            // total_users
-        failCount,                                    // fail_count
-        inactiveCount,                                // archived_count
-        state.partner || ''                           // partner
-      ],
+      broadcastData,
       accessToken
     );
+    
     console.log(`[BROADCAST] ✅ Statistics saved to broadcasts sheet: ${state.broadcast_id} - ${state.broadcast_name}`);
+    console.log(`[BROADCAST] 📝 API Response:`, JSON.stringify(result));
   } catch (error) {
     saveError = error.message || String(error);
     console.error(`[BROADCAST] ❌ Failed to save statistics to broadcasts sheet:`, error);
